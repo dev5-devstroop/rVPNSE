@@ -349,45 +349,66 @@ find "$JNI_LIBS_DIR" -name "*.so" -type f
         return archive_path
     
     def _package_ios_bundle(self, ios_targets: List[Target]) -> Optional[Path]:
-        """Package all iOS libraries into a single framework bundle"""
+        """Package all iOS libraries into separate framework bundles"""
         logger.info("Creating iOS bundle...")
         
         # Create bundle structure
         bundle_dir = self.output_dir / "rvpnse-ios"
-        framework_dir = bundle_dir / "RVPNSE.framework"
-        framework_dir.mkdir(parents=True, exist_ok=True)
+        bundle_dir.mkdir(parents=True, exist_ok=True)
         
         mode_dir = self.mode.value
-        library_paths = []
         
-        # Collect all library paths
+        # Group targets by device/simulator
+        device_targets = []
+        simulator_targets = []
+        
         for target in ios_targets:
             lib_path = self.build_dir / target.rust_target / mode_dir / "librvpnse.dylib"
             if lib_path.exists():
-                library_paths.append(lib_path)
+                if target.rust_target == "aarch64-apple-ios":
+                    device_targets.append((target, lib_path))
+                else:  # simulator targets
+                    simulator_targets.append((target, lib_path))
                 logger.info(f"Found library for {target.name}")
             else:
                 logger.warning(f"Missing library for {target.name}: {lib_path}")
         
-        if not library_paths:
+        if not device_targets and not simulator_targets:
             logger.error("No iOS libraries found to bundle")
             return None
         
-        # Create universal library using lipo
-        universal_lib = framework_dir / "RVPNSE"
-        if len(library_paths) == 1:
-            # Single architecture, just copy
-            shutil.copy2(library_paths[0], universal_lib)
-        else:
-            # Multiple architectures, use lipo to combine
-            lipo_cmd = ["lipo", "-create", "-output", str(universal_lib)] + [str(p) for p in library_paths]
-            if not self._run_command(lipo_cmd):
-                logger.error("Failed to create universal iOS library")
-                return None
+        # Create device framework if we have device targets
+        if device_targets:
+            device_framework_dir = bundle_dir / "RVPNSE-Device.framework"
+            device_framework_dir.mkdir(parents=True, exist_ok=True)
+            
+            if len(device_targets) == 1:
+                shutil.copy2(device_targets[0][1], device_framework_dir / "RVPNSE")
+            else:
+                # Multiple device architectures, use lipo to combine
+                device_paths = [str(path) for _, path in device_targets]
+                lipo_cmd = ["lipo", "-create", "-output", str(device_framework_dir / "RVPNSE")] + device_paths
+                if not self._run_command(lipo_cmd):
+                    logger.error("Failed to create device framework")
+                    return None
         
-        # Create Info.plist
-        info_plist = framework_dir / "Info.plist"
-        info_plist.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+        # Create simulator framework if we have simulator targets
+        if simulator_targets:
+            sim_framework_dir = bundle_dir / "RVPNSE-Simulator.framework"
+            sim_framework_dir.mkdir(parents=True, exist_ok=True)
+            
+            if len(simulator_targets) == 1:
+                shutil.copy2(simulator_targets[0][1], sim_framework_dir / "RVPNSE")
+            else:
+                # Multiple simulator architectures, use lipo to combine
+                sim_paths = [str(path) for _, path in simulator_targets]
+                lipo_cmd = ["lipo", "-create", "-output", str(sim_framework_dir / "RVPNSE")] + sim_paths
+                if not self._run_command(lipo_cmd):
+                    logger.error("Failed to create simulator framework")
+                    return None
+        
+        # Create Info.plist and Headers for both frameworks
+        info_plist_content = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -412,22 +433,31 @@ find "$JNI_LIBS_DIR" -name "*.so" -type f
     <key>MinimumOSVersion</key>
     <string>11.0</string>
 </dict>
-</plist>""")
+</plist>"""
         
-        # Create Headers directory and copy header
-        headers_dir = framework_dir / "Headers"
-        headers_dir.mkdir(exist_ok=True)
-        
-        header_file = self.project_root / "include" / "rvpnse.h"
-        if header_file.exists():
-            shutil.copy2(header_file, headers_dir)
-            
-            # Create module.modulemap
-            module_map = headers_dir / "module.modulemap"
-            module_map.write_text("""framework module RVPNSE {
+        module_map_content = """framework module RVPNSE {
     header "rvpnse.h"
     export *
-}""")
+}"""
+        
+        for framework_name in ["RVPNSE-Device.framework", "RVPNSE-Simulator.framework"]:
+            framework_path = bundle_dir / framework_name
+            if framework_path.exists():
+                # Create Info.plist
+                info_plist = framework_path / "Info.plist"
+                info_plist.write_text(info_plist_content)
+                
+                # Create Headers directory and copy header
+                headers_dir = framework_path / "Headers"
+                headers_dir.mkdir(exist_ok=True)
+                
+                header_file = self.project_root / "include" / "rvpnse.h"
+                if header_file.exists():
+                    shutil.copy2(header_file, headers_dir)
+                    
+                    # Create module.modulemap
+                    module_map = headers_dir / "module.modulemap"
+                    module_map.write_text(module_map_content)
         
         # Add documentation
         readme_file = self.project_root / "README.md"
@@ -448,7 +478,8 @@ if [ -z "$1" ]; then
 fi
 
 IOS_PROJECT="$1"
-FRAMEWORK_NAME="RVPNSE.framework"
+DEVICE_FRAMEWORK="RVPNSE-Device.framework"
+SIMULATOR_FRAMEWORK="RVPNSE-Simulator.framework"
 
 if [ ! -d "$IOS_PROJECT" ]; then
     echo "Error: iOS project not found: $IOS_PROJECT"
@@ -465,21 +496,32 @@ fi
 FRAMEWORKS_DIR="$IOS_PROJECT/Frameworks"
 mkdir -p "$FRAMEWORKS_DIR"
 
-echo "Installing RVPNSE.framework to $FRAMEWORKS_DIR"
+echo "Installing RVPNSE frameworks to $FRAMEWORKS_DIR"
 
-# Remove old framework
-rm -rf "$FRAMEWORKS_DIR/$FRAMEWORK_NAME"
+# Remove old frameworks
+rm -rf "$FRAMEWORKS_DIR/$DEVICE_FRAMEWORK"
+rm -rf "$FRAMEWORKS_DIR/$SIMULATOR_FRAMEWORK"
 
-# Copy new framework
-cp -r "$FRAMEWORK_NAME" "$FRAMEWORKS_DIR/"
+# Copy new frameworks
+if [ -d "$DEVICE_FRAMEWORK" ]; then
+    cp -r "$DEVICE_FRAMEWORK" "$FRAMEWORKS_DIR/"
+    echo "Device framework installed"
+fi
+
+if [ -d "$SIMULATOR_FRAMEWORK" ]; then
+    cp -r "$SIMULATOR_FRAMEWORK" "$FRAMEWORKS_DIR/"
+    echo "Simulator framework installed"
+fi
 
 echo "Installation complete!"
-echo "Framework installed at: $FRAMEWORKS_DIR/$FRAMEWORK_NAME"
 echo ""
 echo "Manual steps required:"
 echo "1. Open your iOS project in Xcode"
-echo "2. Add the framework to your project"
+echo "2. Add the appropriate framework to your project:"
+echo "   - Use RVPNSE-Device.framework for device builds"
+echo "   - Use RVPNSE-Simulator.framework for simulator builds"
 echo "3. Embed the framework in your target"
+echo "4. Consider creating build phases to automatically select the correct framework"
 """)
         install_script.chmod(0o755)
         
