@@ -191,7 +191,7 @@ sequenceDiagram
     Client->>Limits: record_disconnection()
 ```
 
-## � Build Status
+## 💠 Build Status
 
 | Platform | Architecture | Status |
 |----------|-------------|--------|
