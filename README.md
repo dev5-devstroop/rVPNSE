@@ -240,4 +240,5 @@ rVPNSE is licensed under the [Apache License 2.0](LICENSE).
 - **📖 Documentation**: [docs/README.md](docs/README.md)
 - **🐛 Bug Reports**: [GitHub Issues](https://github.com/devstroop/rvpnse/issues)
 - **💬 Discussions**: [GitHub Discussions](https://github.com/devstroop/rvpnse/discussions)
+- **ℹ️ General Contact**: hi@devstroop.com
 - **🔒 Security**: Email security@devstroop.com for security issues
