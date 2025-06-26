@@ -140,6 +140,7 @@ jobs:
       continue-on-error: true
 
     - name: Generate benchmark report
+      shell: bash
       run: |
         mkdir -p benchmark-results
         if [ -d "target/criterion" ]; then
@@ -237,6 +238,7 @@ jobs:
         path: all-benchmarks/
 
     - name: Generate comprehensive report
+      shell: bash
       run: |
         mkdir -p reports
         
@@ -390,6 +392,7 @@ jobs:
           path: benchmark-results/
 
       - name: Run quick benchmark for README
+        shell: bash
         run: |
           # Run a quick benchmark to get latest numbers
           cargo bench --bench config_benchmarks -- --quick > benchmark_output.txt 2>&1 || true
@@ -397,11 +400,13 @@ jobs:
           cargo bench --bench ffi_benchmarks -- --quick >> benchmark_output.txt 2>&1 || true
 
       - name: Update README with benchmark results
+        shell: bash
         run: |
           chmod +x scripts/update-readme-benchmarks.sh
           ./scripts/update-readme-benchmarks.sh
 
       - name: Commit README updates
+        shell: bash
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
