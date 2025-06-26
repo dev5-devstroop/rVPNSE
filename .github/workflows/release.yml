@@ -503,7 +503,7 @@ jobs:
 
       - name: Build iOS libraries
         run: |
-          python3 build.py --mode release --all-ios --verbose
+          python3 tools/build.py --mode release --all-ios --verbose
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
