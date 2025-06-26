@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/devstroop/rVPNSE/release.yml?branch=main)](https://github.com/devstroop/rVPNSE/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/rVPNSE/rVPNSE/release.yml?branch=main)](https://github.com/rVPNSE/rVPNSE/actions)
 [![Documentation](https://img.shields.io/badge/docs-📖%20available-brightgreen.svg)](docs/README.md)
 
 **Rust library for SoftEther VPN protocol implementation with C FFI interface.**
