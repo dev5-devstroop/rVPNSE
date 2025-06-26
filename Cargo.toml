@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Rust VPNSE Team"]
 description = "Static library for SoftEther SSL-VPN protocol implementation"
 license = "Apache-2.0"
-repository = "https://github.com/devstroop/rvpnse"
+repository = "https://github.com/rVPNSE/rVPNSE"
 keywords = ["vpn", "softether", "ssl-vpn", "static-library", "ffi"]
 categories = ["network-programming", "api-bindings"]
 
