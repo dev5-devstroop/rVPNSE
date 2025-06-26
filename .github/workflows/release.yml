@@ -25,15 +25,10 @@ on:
           - minor
           - major
 
-permissions:
-  contents: write
-  pull-requests: read
-  actions: read
-
 env:
+  RUST_VERSION: 1.82.0
+  PYTHON_VERSION: 3.11
   CARGO_TERM_COLOR: always
-  RUST_VERSION: '1.82.0'
-  PYTHON_VERSION: '3.11'
 
 jobs:
   create-release:
@@ -544,8 +539,10 @@ jobs:
   # ============================================================================
   upload-releases:
     name: 🚀 Upload Releases
-    needs: [build-linux, build-windows, build-macos, build-android, build-ios, combine-android]
+    needs: [create-release, build-linux, build-windows, build-macos, build-android, build-ios, combine-android]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
