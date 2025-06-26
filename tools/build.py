@@ -599,8 +599,8 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Find project root
-    project_root = Path(__file__).parent
+    # Find project root (parent of tools directory)
+    project_root = Path(__file__).parent.parent
     builder = RVPNSEBuilder(project_root, BuildMode(args.mode))
     
     if args.list:
