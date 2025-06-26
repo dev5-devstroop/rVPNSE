@@ -418,10 +418,10 @@ jobs:
           path: dist/
 
   # ============================================================================
-  # 📱 ANDROID BUNDLE - Combine All Android Libraries
+  # ANDROID BUNDLE - Combine All Android Libraries
   # ============================================================================
   combine-android:
-    name: 📱 Android Bundle
+    name: Android Bundle
     needs: build-android
     runs-on: ubuntu-latest
     steps:
