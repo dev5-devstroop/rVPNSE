@@ -2,7 +2,7 @@ name: Quality Assurance and Testing
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
     paths-ignore:
       - '**.md'
       - 'docs/**'

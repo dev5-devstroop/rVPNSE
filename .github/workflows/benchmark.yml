@@ -2,7 +2,7 @@ name: Benchmark and Performance Report
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
     paths:
       - 'src/**'
       - 'benches/**'

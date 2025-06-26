@@ -23,21 +23,21 @@ pub fn create_tun_interface(_config: &TunnelConfig) -> Result<String> {
     // Try to create a TUN device
     let interface_name = create_tun_device()?;
 
-    println!("TUN interface '{}' created on macOS", interface_name);
+    println!("TUN interface '{interface_name}' created on macOS");
     Ok(interface_name)
 }
 
 /// Destroy a TUN interface on macOS
 #[allow(dead_code)]
 pub fn destroy_tun_interface(interface_name: &str) -> Result<()> {
-    println!("Destroying TUN interface '{}' on macOS", interface_name);
+    println!("Destroying TUN interface '{interface_name}' on macOS");
 
     // Bring interface down
     let _ = Command::new("ifconfig")
         .args([interface_name, "down"])
         .status();
 
-    println!("TUN interface '{}' destroyed on macOS", interface_name);
+    println!("TUN interface '{interface_name}' destroyed on macOS");
     Ok(())
 }
 
@@ -46,7 +46,7 @@ fn has_tun_permissions() -> bool {
     // Check if we can access /dev/tun* devices
     // On macOS, TUN devices are usually /dev/tun0, /dev/tun1, etc.
     for i in 0..16 {
-        let tun_path = format!("/dev/tun{}", i);
+        let tun_path = format!("/dev/tun{i}");
         if OpenOptions::new()
             .read(true)
             .write(true)
@@ -64,8 +64,8 @@ fn has_tun_permissions() -> bool {
 fn create_tun_device() -> Result<String> {
     // Try to find an available TUN device
     for i in 0..16 {
-        let tun_path = format!("/dev/tun{}", i);
-        let interface_name = format!("tun{}", i);
+        let tun_path = format!("/dev/tun{i}");
+        let interface_name = format!("tun{i}");
 
         match OpenOptions::new()
             .read(true)
@@ -75,7 +75,7 @@ fn create_tun_device() -> Result<String> {
         {
             Ok(_file) => {
                 // TUN device opened successfully
-                println!("Opened TUN device: {}", tun_path);
+                println!("Opened TUN device: {tun_path}");
                 return Ok(interface_name);
             }
             Err(_) => {

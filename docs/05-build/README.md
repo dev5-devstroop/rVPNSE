@@ -60,7 +60,7 @@ sudo dnf install pkg-config
 The `tools/build.py` script provides a unified interface for all compilation tasks:
 
 ```
-build.py
+tools/build.py
 ├── Target Detection    - Automatic platform detection
 ├── Dependency Check    - Validates toolchain availability
 ├── Cross-compilation   - Android, iOS, Windows, Linux

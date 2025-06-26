@@ -161,7 +161,7 @@ impl TunnelManager {
             let output = Command::new("route")
                 .args(["-n", "get", "default"])
                 .output()
-                .map_err(|e| VpnError::Connection(format!("Failed to get default route: {}", e)))?;
+                .map_err(|e| VpnError::Connection(format!("Failed to get default route: {e}")))?;
 
             if output.status.success() {
                 let route_info = String::from_utf8_lossy(&output.stdout);
