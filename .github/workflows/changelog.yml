@@ -1,0 +1,251 @@
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/**'
+      - 'scripts/**'
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/**'
+      - 'scripts/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Check if changelog needs updating
+  check-changelog:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      needs-update: ${{ steps.check.outputs.needs-update }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if changelog update needed
+        id: check
+        run: |
+          # Get changed files in this PR
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          
+          # Check if any Rust files or core functionality changed
+          RUST_CHANGES=$(echo "$CHANGED_FILES" | grep -E '\.(rs|toml)$' || true)
+          
+          # Check if CHANGELOG.md was updated
+          CHANGELOG_UPDATED=$(echo "$CHANGED_FILES" | grep "CHANGELOG.md" || true)
+          
+          if [ -n "$RUST_CHANGES" ] && [ -z "$CHANGELOG_UPDATED" ]; then
+            echo "needs-update=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Rust code changes detected but CHANGELOG.md not updated"
+          else
+            echo "needs-update=false" >> $GITHUB_OUTPUT
+            echo "✅ Changelog update not required or already included"
+          fi
+
+      - name: Comment on PR if changelog needed
+        if: steps.check.outputs.needs-update == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 📝 Changelog Update Needed
+
+              This PR includes Rust code changes but doesn't update the CHANGELOG.md file.
+              
+              Please consider adding an entry to \`CHANGELOG.md\` describing:
+              - New features (if any)
+              - Bug fixes (if any)
+              - Breaking changes (if any)
+              - Performance improvements (if any)
+              
+              If this change doesn't warrant a changelog entry, you can ignore this message.
+              
+              <details>
+              <summary>📋 Changelog Format</summary>
+              
+              \`\`\`markdown
+              ## [Unreleased]
+              
+              ### Added
+              - New feature description
+              
+              ### Changed
+              - Changed functionality description
+              
+              ### Fixed
+              - Bug fix description
+              
+              ### Performance
+              - Performance improvement description
+              \`\`\`
+              </details>`
+            });
+
+  # Generate unreleased changelog entry
+  generate-unreleased:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate unreleased changelog
+        run: |
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$LATEST_TAG" ]; then
+            # No tags yet, get all commits
+            COMMIT_RANGE="HEAD"
+          else
+            # Get commits since last tag
+            COMMIT_RANGE="$LATEST_TAG..HEAD"
+          fi
+          
+          # Create temporary changelog
+          echo "# Changelog" > CHANGELOG_new.md
+          echo "" >> CHANGELOG_new.md
+          echo "All notable changes to this project will be documented in this file." >> CHANGELOG_new.md
+          echo "" >> CHANGELOG_new.md
+          echo "The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)," >> CHANGELOG_new.md
+          echo "and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)." >> CHANGELOG_new.md
+          echo "" >> CHANGELOG_new.md
+          
+          # Check if we have any unreleased changes
+          UNRELEASED_COMMITS=$(git log $COMMIT_RANGE --oneline 2>/dev/null | wc -l)
+          
+          if [ "$UNRELEASED_COMMITS" -gt 0 ]; then
+            echo "## [Unreleased]" >> CHANGELOG_new.md
+            echo "" >> CHANGELOG_new.md
+            
+            # Features
+            FEATURES=$(git log $COMMIT_RANGE --oneline --grep="feat\|feature" --pretty=format:"- %s (%h)" 2>/dev/null || true)
+            if [ -n "$FEATURES" ]; then
+              echo "### Added" >> CHANGELOG_new.md
+              echo "$FEATURES" >> CHANGELOG_new.md
+              echo "" >> CHANGELOG_new.md
+            fi
+            
+            # Fixes
+            FIXES=$(git log $COMMIT_RANGE --oneline --grep="fix\|bug" --pretty=format:"- %s (%h)" 2>/dev/null || true)
+            if [ -n "$FIXES" ]; then
+              echo "### Fixed" >> CHANGELOG_new.md
+              echo "$FIXES" >> CHANGELOG_new.md
+              echo "" >> CHANGELOG_new.md
+            fi
+            
+            # Performance
+            PERF=$(git log $COMMIT_RANGE --oneline --grep="perf\|performance\|optimize" --pretty=format:"- %s (%h)" 2>/dev/null || true)
+            if [ -n "$PERF" ]; then
+              echo "### Performance" >> CHANGELOG_new.md
+              echo "$PERF" >> CHANGELOG_new.md
+              echo "" >> CHANGELOG_new.md
+            fi
+            
+            # Documentation
+            DOCS=$(git log $COMMIT_RANGE --oneline --grep="doc\|docs" --pretty=format:"- %s (%h)" 2>/dev/null || true)
+            if [ -n "$DOCS" ]; then
+              echo "### Documentation" >> CHANGELOG_new.md
+              echo "$DOCS" >> CHANGELOG_new.md
+              echo "" >> CHANGELOG_new.md
+            fi
+          fi
+          
+          # Append existing changelog content (skip if it's the initial version)
+          if [ -f "CHANGELOG.md" ]; then
+            # Skip the header and unreleased section of existing changelog
+            sed '/^## \[Unreleased\]/,/^## /{ /^## \[Unreleased\]/d; /^## /!d; }' CHANGELOG.md >> CHANGELOG_new.md
+          fi
+          
+          # Replace the changelog only if there are meaningful changes
+          if [ "$UNRELEASED_COMMITS" -gt 0 ] || [ ! -f "CHANGELOG.md" ]; then
+            mv CHANGELOG_new.md CHANGELOG.md
+          else
+            rm CHANGELOG_new.md
+          fi
+
+      - name: Commit changelog updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if git diff --quiet CHANGELOG.md; then
+            echo "No changelog updates needed"
+          else
+            git add CHANGELOG.md
+            git commit -m "docs: update changelog [skip ci]"
+            # Try to push, but don't fail if no permissions
+            if git push 2>/dev/null; then
+              echo "✅ Changelog updated successfully"
+            else
+              echo "⚠️ Could not push changelog update (no write permissions)"
+              echo "📄 Generated changelog content:"
+              echo "=============================================="
+              cat CHANGELOG.md | head -50
+              echo "=============================================="
+            fi
+          fi
+
+  # Validate changelog format
+  validate-changelog:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate changelog format
+        run: |
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "ℹ️ No CHANGELOG.md file found - this is okay for new projects"
+            exit 0
+          fi
+          
+          # Basic format validation
+          echo "📋 Validating CHANGELOG.md format..."
+          
+          # Check for proper header
+          if ! grep -q "# Changelog" CHANGELOG.md; then
+            echo "❌ CHANGELOG.md should start with '# Changelog'"
+            exit 1
+          fi
+          
+          # Check for Keep a Changelog reference
+          if ! grep -q "Keep a Changelog" CHANGELOG.md; then
+            echo "⚠️ Consider adding a reference to Keep a Changelog format"
+          fi
+          
+          # Check for proper version format
+          if grep -q "## \[.*\]" CHANGELOG.md; then
+            echo "✅ Proper version format found"
+          else
+            echo "⚠️ No version entries found - this is okay for new projects"
+          fi
+          
+          echo "✅ Changelog format validation passed"
+
+      - name: Check unreleased section
+        run: |
+          if [ -f "CHANGELOG.md" ] && grep -q "## \[Unreleased\]" CHANGELOG.md; then
+            echo "✅ Unreleased section found in changelog"
+            
+            # Extract unreleased section for display
+            echo "📋 Current unreleased changes:"
+            sed -n '/## \[Unreleased\]/,/## \[/p' CHANGELOG.md | sed '$ d' | head -20
+          else
+            echo "ℹ️ No unreleased section found in changelog"
+          fi

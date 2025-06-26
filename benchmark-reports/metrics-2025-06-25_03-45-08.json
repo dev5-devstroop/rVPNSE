@@ -1,0 +1,23 @@
+{
+    "generated_at": "2025-06-25T03:45:18+05:30",
+    "commit": "ef01fba",
+    "platform": {
+        "os": "Darwin",
+        "arch": "arm64",
+        "rust_version": "rustc 1.87.0 (17067e9ac 2025-05-09)"
+    },
+    "benchmarks": {
+        "config_parsing": {
+            "status": "completed",
+            "metrics_available": false
+        },
+        "client_operations": {
+            "status": "completed", 
+            "metrics_available": false
+        },
+        "ffi_interface": {
+            "status": "completed",
+            "metrics_available": false
+        }
+    }
+}

@@ -1,0 +1,79 @@
+[package]
+name = "rvpnse"
+version = "0.1.0"
+edition = "2021"
+authors = ["Rust VPNSE Team"]
+description = "Static library for SoftEther SSL-VPN protocol implementation"
+license = "Apache-2.0"
+repository = "https://github.com/devstroop/rvpnse"
+keywords = ["vpn", "softether", "ssl-vpn", "static-library", "ffi"]
+categories = ["network-programming", "api-bindings"]
+
+[lib]
+name = "rvpnse"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+# TLS implementation - conditional crypto providers for platform compatibility
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls-pemfile = "2.0"
+webpki-roots = "1.0"
+
+# Use ring for most platforms (better performance and security)
+ring = { version = "0.17", optional = true }
+
+# Use aws-lc-rs as fallback for platforms where ring has issues
+aws-lc-rs = { version = "1.13", features = ["bindgen"], optional = true }
+
+# Serialization for configuration
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Error handling
+thiserror = "2.0"
+
+# Networking utilities
+bytes = "1.0"
+
+# UUID generation for sessions
+uuid = { version = "1.0", features = ["v4"] }
+
+# Lazy static for global state
+lazy_static = "1.4"
+
+# Async runtime (for examples)
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "time"], optional = true }
+
+[dev-dependencies]
+# For testing and examples
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "time"] }
+env_logger = "0.11"
+
+# Benchmarking
+criterion = { version = "0.6", features = ["html_reports"] }
+# pprof = { version = "0.13", features = ["criterion", "flamegraph"] } # Disabled due to security advisory RUSTSEC-2024-0408
+
+# Testing utilities
+tempfile = "3.8"
+mock_instant = "0.6"
+
+[[bench]]
+name = "config_benchmarks"
+harness = false
+
+[[bench]]
+name = "client_benchmarks" 
+harness = false
+
+[[bench]]
+name = "ffi_benchmarks"
+harness = false
+
+[features]
+# Default to ring for most platforms
+default = ["ring-crypto"]
+
+# Feature flags for crypto providers  
+ring-crypto = ["ring", "rustls/ring"]
+aws-lc-crypto = ["aws-lc-rs", "rustls/aws_lc_rs"]

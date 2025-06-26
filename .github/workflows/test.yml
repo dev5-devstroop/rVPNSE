@@ -1,0 +1,278 @@
+name: Quality Assurance and Testing
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'scripts/run-benchmarks.sh'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'scripts/run-benchmarks.sh'
+  schedule:
+    # Run full tests weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      full-test:
+        description: 'Run full test suite (including slow tests)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Check if we should run reduced tests for efficiency
+  check-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      run-full: ${{ steps.scope.outputs.full }}
+      platforms: ${{ steps.scope.outputs.platforms }}
+    steps:
+      - name: Determine test scope
+        id: scope
+        shell: bash
+        run: |
+          # Full tests for: scheduled runs, manual dispatch with full-test, or main branch pushes
+          if [[ "${{ github.event_name }}" == "schedule" ]] || \
+             [[ "${{ github.event.inputs.full-test }}" == "true" ]] || \
+             [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+            echo "full=true" >> $GITHUB_OUTPUT
+            echo 'platforms=["ubuntu-latest", "macos-latest", "windows-latest"]' >> $GITHUB_OUTPUT
+            echo "Running full test suite"
+          else
+            echo "full=false" >> $GITHUB_OUTPUT
+            echo 'platforms=["ubuntu-latest"]' >> $GITHUB_OUTPUT
+            echo "Running focused test suite (Ubuntu only)"
+          fi
+
+  test:
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
+    needs: check-scope
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJson(needs.check-scope.outputs.platforms || '["ubuntu-latest"]') }}
+        rust: [stable]
+        include:
+          # Only test beta/nightly on full runs
+          - os: ubuntu-latest
+            rust: beta
+            full-only: true
+          - os: ubuntu-latest
+            rust: nightly
+            experimental: true
+            full-only: true
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Check if should run
+      id: should-run
+      shell: bash
+      run: |
+        # Skip beta/nightly on focused runs
+        if [[ "${{ matrix.full-only }}" == "true" && "${{ needs.check-scope.outputs.run-full }}" != "true" ]]; then
+          echo "skip=true" >> $GITHUB_OUTPUT
+          echo "Skipping ${{ matrix.rust }} on ${{ matrix.os }} (focused run mode)"
+        else
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "Running ${{ matrix.rust }} on ${{ matrix.os }}"
+        fi
+
+    - name: Install Rust toolchain  
+      if: steps.should-run.outputs.skip != 'true'
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+
+    - name: Cache dependencies
+      if: steps.should-run.outputs.skip != 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run tests
+      if: steps.should-run.outputs.skip != 'true'
+      shell: bash
+      run: cargo test --verbose --all-features
+
+    - name: Test examples
+      if: steps.should-run.outputs.skip != 'true'
+      shell: bash
+      run: |
+        cd examples/rvpnse_client
+        cargo test --verbose
+        cargo check --verbose
+
+    - name: Build C FFI examples
+      if: steps.should-run.outputs.skip != 'true' && runner.os != 'Windows'
+      shell: bash
+      run: |
+        # First build the main library at root level
+        cargo build --release
+        # Verify the library was built
+        ls -la target/release/librvpnse.*
+        # Then build the C FFI example using static linking
+        cd examples/rvpnse_client
+        gcc -o test_ffi client_connection.c ../../target/release/librvpnse.a -lpthread -ldl -lm
+        # Verify the binary was created and is executable
+        ls -la test_ffi
+        echo "C FFI example built successfully"
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: llvm-tools-preview
+
+    - name: Install cargo-tarpaulin
+      shell: bash
+      run: cargo install cargo-tarpaulin
+
+    - name: Generate code coverage
+      shell: bash
+      run: |
+        cargo tarpaulin --verbose --all-features --workspace --timeout 120 \
+          --exclude-files examples/* tests/* benches/* \
+          --out Xml --out Html --output-dir coverage/
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        files: coverage/cobertura.xml
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage/
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - name: Check code formatting
+      shell: bash
+      run: cargo fmt -- --check --verbose
+
+    - name: Run Clippy analysis
+      shell: bash
+      run: |
+        cargo clippy --verbose --all-targets --all-features -- \
+          -D warnings \
+          -D clippy::all \
+          -A clippy::missing_errors_doc \
+          -A clippy::missing_panics_doc \
+          -A clippy::must_use_candidate \
+          -A clippy::doc_markdown \
+          -A clippy::cast_possible_truncation \
+          -A clippy::similar_names \
+          -A clippy::manual_let_else \
+          -A clippy::ptr_as_ptr \
+          -A clippy::ignored_unit_patterns \
+          -A clippy::match_same_arms \
+          -A clippy::unreadable_literal \
+          -A clippy::redundant_closure_for_method_calls \
+          -A clippy::unnecessary_wraps \
+          -A clippy::non_std_lazy_statics \
+          -A clippy::unused_self \
+          -A clippy::missing_safety_doc \
+          -A clippy::module_name_repetitions
+
+    - name: Check documentation
+      shell: bash
+      run: |
+        cargo doc --verbose --all-features --no-deps --document-private-items
+        
+        # Check for broken internal links (separate command)
+        RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" \
+          cargo doc --verbose --all-features --no-deps --document-private-items
+
+  memory-safety:
+    name: Memory Safety Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: miri
+
+    - name: Run Miri for memory safety
+      shell: bash
+      run: |
+        cargo miri test --verbose --lib
+      env:
+        MIRIFLAGS: -Zmiri-disable-isolation -Zmiri-strict-provenance
+
+  performance-baseline:
+    name: Performance Baseline
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Run quick performance check
+      shell: bash
+      run: |
+        # Quick smoke test for major performance regressions
+        cargo bench --bench config_benchmarks -- --quick
+        cargo bench --bench client_benchmarks -- --quick
+
+    - name: Check binary size
+      shell: bash
+      run: |
+        cargo build --release
+        ls -lh target/release/librvpnse.*
+        
+        # Create size report
+        echo "# Binary Size Report" > size-report.md
+        echo "Generated: $(date)" >> size-report.md
+        echo "" >> size-report.md
+        echo "| File | Size |" >> size-report.md
+        echo "|------|------|" >> size-report.md
+        ls -lh target/release/librvpnse.* | awk '{print "| " $9 " | " $5 " |"}' >> size-report.md
+
+    - name: Upload size report
+      uses: actions/upload-artifact@v4
+      with:
+        name: binary-size-report
+        path: size-report.md

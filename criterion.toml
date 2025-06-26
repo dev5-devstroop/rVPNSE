@@ -1,0 +1,44 @@
+# Criterion.rs Configuration
+# Performance benchmarking settings for RVPNSE
+
+[output]
+# Generate HTML reports
+html_reports = true
+# Generate CSV data for further analysis  
+csv_reports = true
+# Generate JSON output for CI/CD integration
+json_reports = true
+
+[measurement]
+# Default measurement time in seconds
+measurement_time = 10
+# Warm-up time in seconds
+warm_up_time = 3
+# Number of samples to collect
+sample_size = 100
+
+[sampling]
+# Confidence level for measurements
+confidence_level = 0.95
+# Noise threshold for detecting performance changes
+noise_threshold = 0.02
+
+[plotting]
+# Generate detailed plots
+enabled = true
+# Plot width in pixels
+width = 1024
+# Plot height in pixels  
+height = 768
+
+[comparison]
+# Enable comparison with previous runs
+enabled = true
+# Significance threshold for regression detection
+significance_threshold = 0.05
+
+[profiling]
+# Enable profiling integration
+enabled = true
+# Profiling tool (supports: pprof, flamegraph)
+tool = "pprof"

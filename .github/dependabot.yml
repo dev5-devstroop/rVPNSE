@@ -1,0 +1,59 @@
+version: 2
+updates:
+  # Cargo dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "itsalfredakku"
+    assignees:
+      - "itsalfredakku"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+    # Group related updates
+    groups:
+      criterion-updates:
+        patterns:
+          - "criterion*"
+        update-types:
+          - "minor"
+          - "patch"
+      serde-updates:
+        patterns:
+          - "serde*"
+        update-types:
+          - "minor"
+          - "patch"
+      tokio-updates:
+        patterns:
+          - "tokio*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "06:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "itsalfredakku"
+    assignees:
+      - "itsalfredakku"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"

@@ -1,0 +1,180 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# VPN specific
+*.ovpn
+*.cert
+*.key
+*.p12
+*.pem
+keys/
+certificates/
+config/secrets/
+
+# Build artifacts
+artifacts/
+dist/
+build/
+out/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Testing
+test-results/
+coverage/
+
+# Documentation
+docs/_build/
+
+# Profiling
+perf.data
+perf.data.old
+*.prof
+
+# Platform specific build outputs
+*.exe
+*.dll
+*.so
+*.dylib
+
+# macOS specific
+*.dSYM/
+
+# Windows specific
+*.exe
+*.msi
+*.msm
+*.msp
+
+# Linux specific
+*.AppImage
+*.deb
+*.rpm
+
+# Mobile development (if we add mobile support later)
+.flutter-plugins
+.flutter-plugins-dependencies
+.dart_tool/
+build/
+.packages
+pubspec.lock
+
+# Tauri specific (for when we implement GUI)
+src-tauri/target/
+src-tauri/WixTools/
+
+# Flutter specific (alternative GUI option)
+**/android/**/gradle-wrapper.jar
+**/android/.gradle
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/android/key.properties
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/*sync/
+**/ios/**/.sconsign.dblite
+**/ios/**/.tags*
+**/ios/**/.vagrant/
+**/ios/**/DerivedData/
+**/ios/**/Icon?
+**/ios/**/Pods/
+**/ios/**/.symlinks/
+**/ios/**/profile
+**/ios/**/xcuserdata
+**/ios/.generated/
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+
+# Web
+web/
+**/web/
+
+# Network testing artifacts
+network_test_results/
+vpn_logs/
+connection_logs/
+
+# WorxVPN - separate project, not part of rvpnse
+examples/WorxVPN/
+examples/WorxVPN_backup/

@@ -1,0 +1,11 @@
+FROM ghcr.io/cross-rs/cross:aarch64-linux-android
+
+# Install additional dependencies if needed
+RUN apt-get update && apt-get install -y cmake && rm -rf /var/lib/apt/lists/*
+
+# Copy source code
+COPY . /app
+WORKDIR /app
+
+# Build the library
+RUN cargo build --release --target aarch64-linux-android
