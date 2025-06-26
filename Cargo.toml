@@ -1,6 +1,6 @@
 [package]
 name = "rvpnse"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Rust VPNSE Team"]
 description = "Static library for SoftEther SSL-VPN protocol implementation"
