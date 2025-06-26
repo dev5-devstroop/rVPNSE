@@ -5,6 +5,14 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/release.yml'
+      - 'tools/build.py'
   workflow_dispatch:
     inputs:
       release_type:
@@ -60,8 +68,12 @@ jobs:
               patch)
                 NEW_VERSION=$(echo $CURRENT_VERSION | awk -F. '{print $1"."$2"."($3+1)}')
                 ;;
+              *)
+                NEW_VERSION=$CURRENT_VERSION
+                ;;
             esac
             echo "version=v$NEW_VERSION" >> $GITHUB_OUTPUT
+            
             # Update Cargo.toml
             sed -i "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
             
@@ -75,8 +87,14 @@ jobs:
             git tag "v$NEW_VERSION"
             git push origin HEAD:${{ github.ref_name }}
             git push origin "v$NEW_VERSION"
-          else
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # For tag pushes, use the tag name
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            # For regular pushes, create a development release
+            CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "//' | sed 's/"//')
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+            echo "version=v$CURRENT_VERSION-dev-$SHORT_SHA" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Release
@@ -84,33 +102,43 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.get_version.outputs.version }}" \
-            --title "RVPNSE ${{ steps.get_version.outputs.version }}" \
-            --notes "## RVPNSE Release ${{ steps.get_version.outputs.version }}
-            
-            Production-ready VPN library with cross-platform support.
-            
-            ### Platforms
-            - ✅ Linux x64
-            - ✅ macOS x64 & arm64  
-            - ✅ Windows x64
-            - ✅ Android arm64/armv7/x64
-            - ✅ iOS arm64/Simulator
-            
-            ### Features
-            - 🦀 Production-ready Rust implementation
-            - 🔒 Secure SoftEther SSL-VPN protocol
-            - 🌍 Cross-platform C FFI interface
-            - ⚡ Connection limits and rate limiting
-            - 📱 Mobile-optimized implementations
-            
-            See the [documentation](https://github.com/devstroop/rvpnse/tree/main/docs) for integration guides." \
-            --draft=false \
-            --prerelease=false || true
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "🚀 Creating release: $VERSION"
+          
+          # Check if release already exists
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "✅ Release $VERSION already exists"
+          else
+            echo "📝 Creating new release $VERSION"
+            gh release create "$VERSION" \
+              --title "rVPNSE $VERSION" \
+              --notes "## rVPNSE Release $VERSION
+              
+              Production-ready VPN library with cross-platform support.
+              
+              ### Platforms
+              - ✅ Linux x64/x86/arm64/armv7
+              - ✅ macOS x64 & arm64  
+              - ✅ Windows x64/x86/arm64
+              - ✅ Android arm64/armv7/x64/x86
+              - ✅ iOS arm64/Simulator
+              
+              ### Features
+              - 🦀 Production-ready Rust implementation
+              - 🔒 Secure SoftEther SSL-VPN protocol
+              - 🌍 Cross-platform C FFI interface
+              - ⚡ Connection limits and rate limiting
+              - 📱 Mobile-optimized implementations
+              
+              See the [documentation](https://github.com/devstroop/rVPNSE/tree/main/docs) for integration guides." \
+              --draft=false \
+              --prerelease=false
+          fi
           
           # Get the upload URL for artifacts
-          UPLOAD_URL=$(gh api repos/${{ github.repository }}/releases/tags/${{ steps.get_version.outputs.version }} --jq '.upload_url')
+          UPLOAD_URL=$(gh api repos/${{ github.repository }}/releases/tags/$VERSION --jq '.upload_url')
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+          echo "✅ Release $VERSION is ready for artifact uploads"
 
   # ============================================================================
   # LINUX BUILDS - Multiple Architectures
