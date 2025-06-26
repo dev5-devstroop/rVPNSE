@@ -6,13 +6,13 @@ RVPNSE uses a unified Python build system for all platforms. You can build for y
 
 ```bash
 # Build for current platform (debug mode)
-python3 build.py
+python3 tools/build.py
 
 # Build for current platform (release mode)
-python3 build.py --mode release
+python3 tools/build.py --mode release
 
 # List all available targets
-python3 build.py --list
+python3 tools/build.py --list
 ```
 
 ## 📋 Prerequisites
@@ -57,7 +57,7 @@ sudo dnf install pkg-config
 
 ## 🏗️ Build System Architecture
 
-The `build.py` script provides a unified interface for all compilation tasks:
+The `tools/build.py` script provides a unified interface for all compilation tasks:
 
 ```
 build.py
@@ -74,39 +74,39 @@ build.py
 
 ```bash
 # Current platform (auto-detected)
-python3 build.py
+python3 tools/build.py
 
 # Specific desktop targets
-python3 build.py --targets macos-arm64 macos-x64 linux-x64 windows-x64
+python3 tools/build.py --targets macos-arm64 macos-x64 linux-x64 windows-x64
 
 # All desktop platforms
-python3 build.py --all-desktop
+python3 tools/build.py --all-desktop
 ```
 
 ### Mobile Platforms
 
 ```bash
 # All Android architectures
-python3 build.py --all-android
+python3 tools/build.py --all-android
 
 # Specific Android targets
-python3 build.py --targets android-arm64 android-armv7 android-x86_64
+python3 tools/build.py --targets android-arm64 android-armv7 android-x86_64
 
 # iOS (macOS only)
-python3 build.py --targets ios-arm64 ios-simulator-x64
+python3 tools/build.py --targets ios-arm64 ios-simulator-x64
 ```
 
 ### Build Modes
 
 ```bash
 # Debug build (default) - includes debug symbols, no optimization
-python3 build.py --mode debug
+python3 tools/build.py --mode debug
 
 # Release build - optimized, stripped symbols
-python3 build.py --mode release
+python3 tools/build.py --mode release
 
 # Development build - optimized but with debug info
-python3 build.py --mode dev
+python3 tools/build.py --mode dev
 ```
 
 ## 📦 Output Artifacts
@@ -139,13 +139,13 @@ dist/
 
 ```bash
 # Build with specific Cargo features
-python3 build.py --features "async,logging"
+python3 tools/build.py --features "async,logging"
 
 # Build without default features
-python3 build.py --no-default-features
+python3 tools/build.py --no-default-features
 
 # Combine custom features
-python3 build.py --no-default-features --features "core,tls"
+python3 tools/build.py --no-default-features --features "core,tls"
 ```
 
 ### Environment Configuration
@@ -153,27 +153,27 @@ python3 build.py --no-default-features --features "core,tls"
 ```bash
 # Custom NDK path for Android
 export ANDROID_NDK_HOME=/path/to/ndk
-python3 build.py --targets android-arm64
+python3 tools/build.py --targets android-arm64
 
 # Custom Rust toolchain
 export RUSTUP_TOOLCHAIN=nightly
-python3 build.py --mode release
+python3 tools/build.py --mode release
 
 # Verbose output
-python3 build.py --verbose
+python3 tools/build.py --verbose
 ```
 
 ### Clean Builds
 
 ```bash
 # Clean all build artifacts
-python3 build.py --clean
+python3 tools/build.py --clean
 
 # Clean and rebuild
-python3 build.py --clean --mode release
+python3 tools/build.py --clean --mode release
 
 # Clean specific target
-python3 build.py --clean --targets android-arm64
+python3 tools/build.py --clean --targets android-arm64
 ```
 
 ## 🧪 Testing Builds
@@ -182,10 +182,10 @@ python3 build.py --clean --targets android-arm64
 
 ```bash
 # Build and run basic tests
-python3 build.py --test
+python3 tools/build.py --test
 
 # Build specific target and validate
-python3 build.py --targets linux-x64 --test
+python3 tools/build.py --targets linux-x64 --test
 ```
 
 ### Integration Testing
@@ -234,14 +234,14 @@ source ~/.cargo/env
 ```bash
 # Set NDK path explicitly
 export ANDROID_NDK_HOME=/path/to/android-ndk-r25c
-python3 build.py --targets android-arm64
+python3 tools/build.py --targets android-arm64
 ```
 
 #### "Permission denied" on Linux/macOS
 ```bash
 # Make build script executable
 chmod +x build.py
-python3 build.py
+python3 tools/build.py
 ```
 
 #### "Visual Studio not found" on Windows
@@ -256,13 +256,13 @@ python build.py
 
 ```bash
 # Enable verbose logging
-python3 build.py --verbose --targets your-target
+python3 tools/build.py --verbose --targets your-target
 
 # Check system requirements
-python3 build.py --check-deps
+python3 tools/build.py --check-deps
 
 # Validate environment
-python3 build.py --doctor
+python3 tools/build.py --doctor
 ```
 
 ## 🔄 Continuous Integration
@@ -273,21 +273,21 @@ The build system is designed for CI/CD environments:
 # GitHub Actions example
 - name: Build RVPNSE
   run: |
-    python3 build.py --all-desktop --mode release
-    python3 build.py --test
+    python3 tools/build.py --all-desktop --mode release
+    python3 tools/build.py --test
 ```
 
 ### CI-Specific Options
 
 ```bash
 # Non-interactive mode (no prompts)
-python3 build.py --ci --mode release
+python3 tools/build.py --ci --mode release
 
 # Generate build reports
-python3 build.py --report --output build-report.json
+python3 tools/build.py --report --output build-report.json
 
 # Fail fast on errors
-python3 build.py --fail-fast
+python3 tools/build.py --fail-fast
 ```
 
 ## 📖 Integration Examples

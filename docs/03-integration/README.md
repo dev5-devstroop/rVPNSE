@@ -396,7 +396,7 @@ from rvpnse import RvpnseClient, RvpnseConfig
 
 @pytest.fixture
 def vpn_client():
-    config = RvpnseConfig.from_file("test_config.toml")
+    config = RvpnseConfig.from_file("config/test_config.toml")
     client = RvpnseClient(config)
     yield client
     client.disconnect()
