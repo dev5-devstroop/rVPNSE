@@ -4,7 +4,7 @@ Get up and running with rVPNSE in under 10 minutes! This guide will walk you thr
 
 ## 📑 Contents
 
-- [🛠️ Installation](installation.md) - Download and install RVPNSE
+- [🛠️ Installation](installation.md) - Download and install rVPNSE
 - [⚙️ Configuration](configuration.md) - Basic configuration setup
 - [🔌 First Connection](first-connection.md) - Make your first VPN connection
 - [📱 Platform Guides](platform-guides.md) - Platform-specific quickstarts
@@ -75,7 +75,7 @@ Create `main.c`:
 
 int main() {
     // Initialize rVPNSE
-    if (rvpnse_init() != RVPNSE_SUCCESS) {
+    if (rvpnse_init() != rVPNSE_SUCCESS) {
         printf("Failed to initialize rVPNSE\\n");
         return 1;
     }
@@ -97,7 +97,7 @@ int main() {
     // Connect to VPN
     printf("Connecting to VPN...\\n");
     RvpnseResult result = rvpnse_client_connect(client);
-    if (result == RVPNSE_SUCCESS) {
+    if (result == rVPNSE_SUCCESS) {
         printf("Connected successfully!\\n");
         
         // Keep connection alive for 60 seconds

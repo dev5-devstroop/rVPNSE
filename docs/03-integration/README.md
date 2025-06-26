@@ -64,7 +64,7 @@ int main() {
     RvpnseConfig* config = rvpnse_config_from_file("config.toml");
     RvpnseClient* client = rvpnse_client_new(config);
     
-    if (rvpnse_client_connect(client) == RVPNSE_SUCCESS) {
+    if (rvpnse_client_connect(client) == rVPNSE_SUCCESS) {
         printf("Connected!\\n");
     }
     
@@ -116,7 +116,7 @@ class VPNManager {
         client = rvpnse_client_new(config)
         
         let result = rvpnse_client_connect(client)
-        if result != RVPNSE_SUCCESS {
+        if result != rVPNSE_SUCCESS {
             throw VPNError.connectionFailed
         }
     }
@@ -169,7 +169,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var client: OpaquePointer?
     
     override func startTunnel(options: [String : NSObject]?) async throws {
-        // Initialize RVPNSE
+        // Initialize rVPNSE
         let config = loadConfiguration()
         client = rvpnse_client_new(config)
         
@@ -191,14 +191,14 @@ class RvpnseVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Create VPN interface
         val builder = Builder()
-            .setSession("RVPNSE")
+            .setSession("rVPNSE")
             .addAddress("10.0.0.2", 24)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("8.8.8.8")
             
         vpnInterface = builder.establish()
         
-        // Connect RVPNSE
+        // Connect rVPNSE
         connectVpn()
         
         return START_STICKY
@@ -212,7 +212,7 @@ class RvpnseVpnService : VpnService() {
 ```bash
 # systemd service file
 [Unit]
-Description=RVPNSE VPN Service
+Description=rVPNSE VPN Service
 After=network.target
 
 [Service]
@@ -232,7 +232,7 @@ public class RvpnseWindowsService : ServiceBase
     
     protected override void OnStart(string[] args)
     {
-        var config = RvpnseConfig.FromFile(@"C:\\Program Files\\RVPNSE\\config.toml");
+        var config = RvpnseConfig.FromFile(@"C:\\Program Files\\rVPNSE\\config.toml");
         client = new RvpnseClient(config);
         
         Task.Run(async () => await client.ConnectAsync());
@@ -306,7 +306,7 @@ RvpnseResult validate_certificate(const char* cert_pem, void* userdata) {
     // Verify certificate chain
     // Check certificate expiration
     
-    return RVPNSE_SUCCESS;
+    return rVPNSE_SUCCESS;
 }
 
 rvpnse_client_set_cert_validator(client, validate_certificate, NULL);
@@ -318,16 +318,16 @@ rvpnse_client_set_cert_validator(client, validate_certificate, NULL);
 ```c
 void on_state_changed(RvpnseConnectionState state, void* userdata) {
     switch (state) {
-        case RVPNSE_STATE_CONNECTING:
+        case rVPNSE_STATE_CONNECTING:
             printf("Connecting to VPN...\\n");
             break;
-        case RVPNSE_STATE_CONNECTED:
+        case rVPNSE_STATE_CONNECTED:
             printf("VPN connected successfully\\n");
             break;
-        case RVPNSE_STATE_DISCONNECTED:
+        case rVPNSE_STATE_DISCONNECTED:
             printf("VPN disconnected\\n");
             break;
-        case RVPNSE_STATE_ERROR:
+        case rVPNSE_STATE_ERROR:
             printf("VPN connection error\\n");
             break;
     }
@@ -380,7 +380,7 @@ void test_basic_connection() {
     RvpnseClient* client = rvpnse_client_new(config);
     
     RvpnseResult result = rvpnse_client_connect(client);
-    assert(result == RVPNSE_SUCCESS);
+    assert(result == rVPNSE_SUCCESS);
     
     rvpnse_client_disconnect(client);
     rvpnse_client_free(client);
@@ -421,7 +421,7 @@ def test_connection_lifecycle(vpn_client):
 | **Permission denied** | Ensure VPN permissions on mobile platforms |
 | **Connection timeout** | Check firewall and network configuration |
 | **Certificate errors** | Verify server certificate and CA chain |
-| **Memory leaks** | Ensure proper cleanup of RVPNSE objects |
+| **Memory leaks** | Ensure proper cleanup of rVPNSE objects |
 
 ### **Debug Logging**
 ```toml

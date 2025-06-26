@@ -14,8 +14,8 @@
  * 7. Free client with vpnse_client_free()
  */
 
-#ifndef RVPNSE_H
-#define RVPNSE_H
+#ifndef rVPNSE_H
+#define rVPNSE_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -123,4 +123,4 @@ int vpnse_client_status(const vpnse_client_t* client);
 }
 #endif
 
-#endif /* RVPNSE_H */
+#endif /* rVPNSE_H */

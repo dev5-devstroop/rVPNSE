@@ -1,4 +1,4 @@
-# RVPNSE Production Configuration Example
+# rVPNSE Production Configuration Example
 # This configuration demonstrates connection limits and production settings
 
 [server]
@@ -30,7 +30,7 @@ password = "secure_password_here"
 save_username = true
 
 [vpn]
-adapter_name = "RVPNSE"
+adapter_name = "rVPNSE"
 mtu = 1500
 use_compression = true
 auto_reconnect = true

@@ -1,6 +1,6 @@
-# RVPNSE Troubleshooting Guide
+# rVPNSE Troubleshooting Guide
 
-This guide covers common issues you might encounter when building, integrating, or using RVPNSE.
+This guide covers common issues you might encounter when building, integrating, or using rVPNSE.
 
 ## 🚨 Quick Diagnostics
 

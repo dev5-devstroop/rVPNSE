@@ -1,10 +1,10 @@
-# RVPNSE Client Examples
+# rVPNSE Client Examples
 
 This directory contains example applications that demonstrate how to use the `rvpnse` static library for SoftEther SSL-VPN connections.
 
 ## Examples Included
 
-### 1. RVPNSE Client (`src/main.rs`)
+### 1. rVPNSE Client (`src/main.rs`)
 Comprehensive Rust example demonstrating:
 - Configuration loading and validation
 - Protocol-level connection to SoftEther VPN servers

@@ -8,7 +8,7 @@
 
 ## Reporting a Vulnerability
 
-We take the security of RVPNSE seriously. If you discover a security vulnerability, please report it responsibly:
+We take the security of rVPNSE seriously. If you discover a security vulnerability, please report it responsibly:
 
 ### How to Report
 
@@ -29,7 +29,7 @@ We take the security of RVPNSE seriously. If you discover a security vulnerabili
 
 ### Security Best Practices
 
-When using RVPNSE:
+When using rVPNSE:
 
 1. **Keep Dependencies Updated**: Regularly update to the latest version
 2. **Validate Configurations**: Always validate configuration inputs
@@ -38,7 +38,7 @@ When using RVPNSE:
 
 ### Security Features
 
-RVPNSE implements several security measures:
+rVPNSE implements several security measures:
 
 - Memory-safe Rust implementation
 - Input validation for all configuration parameters
@@ -54,4 +54,4 @@ RVPNSE implements several security measures:
 4. **Day 8-14**: Testing and validation
 5. **Day 15+**: Coordinated disclosure and release
 
-Thank you for helping keep RVPNSE secure!
+Thank you for helping keep rVPNSE secure!

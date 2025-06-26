@@ -1,8 +1,8 @@
-# RVPNSE C API Reference
+# rVPNSE C API Reference
 
 ## Overview
 
-The RVPNSE library provides a comprehensive C Foreign Function Interface (FFI) for seamless integration with applications written in C, C++, and other languages that support C bindings.
+The rVPNSE library provides a comprehensive C Foreign Function Interface (FFI) for seamless integration with applications written in C, C++, and other languages that support C bindings.
 
 ## Header File
 
@@ -132,18 +132,18 @@ enum ConnectionState {
 
 | Code | Name | Description |
 |------|------|-------------|
-| `0` | `RVPNSE_SUCCESS` | Operation completed successfully |
-| `1` | `RVPNSE_ERROR_CONFIG` | Configuration error |
-| `2` | `RVPNSE_ERROR_NETWORK` | Network connectivity error |
-| `3` | `RVPNSE_ERROR_CONNECTION` | Connection establishment error |
-| `4` | `RVPNSE_ERROR_AUTHENTICATION` | Authentication failure |
-| `5` | `RVPNSE_ERROR_PROTOCOL` | Protocol error |
-| `6` | `RVPNSE_ERROR_CRYPTO` | Cryptographic error |
-| `7` | `RVPNSE_ERROR_PLATFORM` | Platform-specific error |
-| `8` | `RVPNSE_ERROR_TUNTAP` | TUN/TAP interface error |
-| `9` | `RVPNSE_ERROR_ROUTING` | Routing configuration error |
-| `10` | `RVPNSE_ERROR_DNS` | DNS configuration error |
-| `11` | `RVPNSE_ERROR_PERMISSION` | Insufficient permissions |
+| `0` | `rVPNSE_SUCCESS` | Operation completed successfully |
+| `1` | `rVPNSE_ERROR_CONFIG` | Configuration error |
+| `2` | `rVPNSE_ERROR_NETWORK` | Network connectivity error |
+| `3` | `rVPNSE_ERROR_CONNECTION` | Connection establishment error |
+| `4` | `rVPNSE_ERROR_AUTHENTICATION` | Authentication failure |
+| `5` | `rVPNSE_ERROR_PROTOCOL` | Protocol error |
+| `6` | `rVPNSE_ERROR_CRYPTO` | Cryptographic error |
+| `7` | `rVPNSE_ERROR_PLATFORM` | Platform-specific error |
+| `8` | `rVPNSE_ERROR_TUNTAP` | TUN/TAP interface error |
+| `9` | `rVPNSE_ERROR_ROUTING` | Routing configuration error |
+| `10` | `rVPNSE_ERROR_DNS` | DNS configuration error |
+| `11` | `rVPNSE_ERROR_PERMISSION` | Insufficient permissions |
 
 ## Usage Example
 

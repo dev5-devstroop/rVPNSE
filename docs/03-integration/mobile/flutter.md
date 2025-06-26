@@ -818,7 +818,7 @@ void main() {
         _client = rvpnse_client_new(_config);
         RvpnseResult connectResult = rvpnse_client_connect(_client);
         
-        if (connectResult == RVPNSE_SUCCESS) {
+        if (connectResult == rVPNSE_SUCCESS) {
             result(@{@"success": @YES});
         } else {
             result(@{@"success": @NO, @"error": @"Connection failed"});

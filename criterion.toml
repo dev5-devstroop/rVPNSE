@@ -1,5 +1,5 @@
 # Criterion.rs Configuration
-# Performance benchmarking settings for RVPNSE
+# Performance benchmarking settings for rVPNSE
 
 [output]
 # Generate HTML reports

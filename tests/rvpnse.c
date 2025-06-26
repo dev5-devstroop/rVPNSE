@@ -17,7 +17,7 @@
 
 #ifdef __ANDROID__
 #include <android/log.h>
-#define LOG_TAG "RVPNSE"
+#define LOG_TAG "rVPNSE"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #else
@@ -36,7 +36,7 @@ extern "C" {
     #define EXPORT __attribute__((visibility("default")))
 #endif
 
-// RVPNSE implementation for production use
+// rVPNSE implementation for production use
 // This provides actual validation instead of always returning success
 
 typedef struct {
@@ -62,7 +62,7 @@ typedef struct {
 
 // Version string
 EXPORT const char* vpnse_version() {
-    return "RVPNSE 1.0.0";
+    return "rVPNSE 1.0.0";
 }
 
 // Create a new VPN client
@@ -101,14 +101,14 @@ EXPORT int vpnse_client_connect(vpnse_client_t* client, const char* server, uint
     
     // VALIDATION: Basic server hostname validation
     if (strlen(server) < 3 || strstr(server, "..") || server[0] == '.' || server[strlen(server)-1] == '.') {
-        printf("❌ RVPNSE: Invalid server hostname format: %s\n", server);
+        printf("❌ rVPNSE: Invalid server hostname format: %s\n", server);
         client->status = 0; // disconnected
         return VPNSE_ERROR_CONNECTION_FAILED;
     }
     
     // VALIDATION: Check if port is reasonable
     if (port < 1 || port > 65535) {
-        printf("❌ RVPNSE: Invalid port: %d\n", port);
+        printf("❌ rVPNSE: Invalid port: %d\n", port);
         client->status = 0; // disconnected
         return VPNSE_ERROR_CONNECTION_FAILED;
     }
@@ -116,7 +116,7 @@ EXPORT int vpnse_client_connect(vpnse_client_t* client, const char* server, uint
     // For known VPN Gate servers, allow connection
     if (strstr(server, "opengw.net") || strstr(server, "vpngate") || 
         strstr(server, "public-vpn") || strstr(server, "vpn.")) {
-        printf("✅ RVPNSE: Allowing connection to VPN server: %s:%d\n", server, port);
+        printf("✅ rVPNSE: Allowing connection to VPN server: %s:%d\n", server, port);
         client->status = 2; // connected
         client->connection_valid = 1;
         return VPNSE_SUCCESS;
@@ -125,25 +125,25 @@ EXPORT int vpnse_client_connect(vpnse_client_t* client, const char* server, uint
     // For fake/test/invalid servers, reject immediately
     if (strstr(server, "fake") || strstr(server, "test") || strstr(server, "invalid") || 
         strstr(server, "example") || strstr(server, "localhost") || strstr(server, "127.0.0.1")) {
-        printf("❌ RVPNSE: Rejecting fake/test server: %s:%d\n", server, port);
+        printf("❌ rVPNSE: Rejecting fake/test server: %s:%d\n", server, port);
         client->status = 0; // disconnected
         client->connection_valid = 0;
         return VPNSE_ERROR_CONNECTION_FAILED;
     }
     
     // For other servers, require basic validation
-    printf("⚠️  RVPNSE: Unknown server %s:%d - performing network validation\n", server, port);
+    printf("⚠️  rVPNSE: Unknown server %s:%d - performing network validation\n", server, port);
     
     // Basic hostname validation - must contain a valid TLD
     if (!strstr(server, ".com") && !strstr(server, ".net") && !strstr(server, ".org") && 
         !strstr(server, ".gov") && !strstr(server, ".edu") && !strstr(server, ".mil")) {
-        printf("❌ RVPNSE: Invalid hostname format: %s\n", server);
+        printf("❌ rVPNSE: Invalid hostname format: %s\n", server);
         client->status = 0; // disconnected
         client->connection_valid = 0;
         return VPNSE_ERROR_CONNECTION_FAILED;
     }
     
-    printf("✅ RVPNSE: Server hostname validation passed: %s:%d\n", server, port);
+    printf("✅ rVPNSE: Server hostname validation passed: %s:%d\n", server, port);
     client->status = 2; // connected
     client->connection_valid = 1;
     return VPNSE_SUCCESS;
@@ -154,7 +154,7 @@ EXPORT int vpnse_client_authenticate(vpnse_client_t* client, const char* usernam
     if (!client || !username || !password) return VPNSE_ERROR_INVALID_CONFIG;
     
     if (client->status != 2) {
-        printf("❌ RVPNSE: Cannot authenticate - not connected\n");
+        printf("❌ rVPNSE: Cannot authenticate - not connected\n");
         return VPNSE_ERROR_CONNECTION_FAILED;
     }
     
@@ -167,7 +167,7 @@ EXPORT int vpnse_client_authenticate(vpnse_client_t* client, const char* usernam
     
     // VALIDATION: Check for obviously wrong credentials
     if (strlen(username) == 0 || strlen(password) == 0) {
-        printf("❌ RVPNSE: Empty username or password\n");
+        printf("❌ rVPNSE: Empty username or password\n");
         return VPNSE_ERROR_AUTH_FAILED;
     }
     
@@ -177,10 +177,10 @@ EXPORT int vpnse_client_authenticate(vpnse_client_t* client, const char* usernam
         
         // VPN Gate servers typically use "vpn"/"vpn" credentials
         if (strcmp(username, "vpn") == 0 && strcmp(password, "vpn") == 0) {
-            printf("✅ RVPNSE: VPN Gate authentication successful for %s\n", username);
+            printf("✅ rVPNSE: VPN Gate authentication successful for %s\n", username);
             return VPNSE_SUCCESS;
         } else {
-            printf("❌ RVPNSE: VPN Gate requires 'vpn'/'vpn' credentials, got '%s'/'%s'\n", username, password);
+            printf("❌ rVPNSE: VPN Gate requires 'vpn'/'vpn' credentials, got '%s'/'%s'\n", username, password);
             return VPNSE_ERROR_AUTH_FAILED;
         }
     }
@@ -188,17 +188,17 @@ EXPORT int vpnse_client_authenticate(vpnse_client_t* client, const char* usernam
     // For other servers, do basic hostname reachability check instead of full connection
     struct hostent *he = gethostbyname(client->server_hostname);
     if (!he) {
-        printf("❌ RVPNSE: Cannot resolve hostname: %s\n", client->server_hostname);
+        printf("❌ rVPNSE: Cannot resolve hostname: %s\n", client->server_hostname);
         return VPNSE_ERROR_CONNECTION_FAILED;
     }
     
     // Basic credential validation for other servers
     if (strlen(username) < 3 || strlen(password) < 3) {
-        printf("❌ RVPNSE: Username and password must be at least 3 characters\n");
+        printf("❌ rVPNSE: Username and password must be at least 3 characters\n");
         return VPNSE_ERROR_AUTH_FAILED;
     }
     
-    printf("✅ RVPNSE: Server reachable, credentials accepted for %s\n", username);
+    printf("✅ rVPNSE: Server reachable, credentials accepted for %s\n", username);
     return VPNSE_SUCCESS;
 }
 
@@ -212,7 +212,7 @@ EXPORT int vpnse_client_status(vpnse_client_t* client) {
 EXPORT int vpnse_client_disconnect(vpnse_client_t* client) {
     if (!client) return VPNSE_ERROR_INVALID_CONFIG;
     
-    printf("🔌 RVPNSE: Disconnecting from server\n");
+    printf("🔌 rVPNSE: Disconnecting from server\n");
     client->status = 0; // disconnected
     client->connection_valid = 0;
     
@@ -412,7 +412,7 @@ EXPORT int vpnse_client_establish_tunnel(vpnse_client_t* client) {
         return VPNSE_ERROR_CONNECTION_FAILED;
     }
     
-    LOGI("🔧 RVPNSE: Establishing VPN tunnel...");
+    LOGI("🔧 rVPNSE: Establishing VPN tunnel...");
     
 #ifdef __APPLE__
     // macOS: Use system VPN configuration instead of manual TUN
@@ -422,7 +422,7 @@ EXPORT int vpnse_client_establish_tunnel(vpnse_client_t* client) {
     // VPN routing should be handled by the Flutter app's VPN service
     client->status = 3; // tunneling
     
-    LOGI("✅ RVPNSE: VPN tunnel established (system VPN mode)!");
+    LOGI("✅ rVPNSE: VPN tunnel established (system VPN mode)!");
     LOGI("🌐 Traffic routing will be handled by system VPN service");
     LOGI("📍 Public IP should change through system VPN");
     
@@ -468,7 +468,7 @@ EXPORT int vpnse_client_establish_tunnel(vpnse_client_t* client) {
     
     client->status = 3; // tunneling
     
-    LOGI("✅ RVPNSE: VPN tunnel established successfully!");
+    LOGI("✅ rVPNSE: VPN tunnel established successfully!");
     LOGI("🌐 TUN interface created - routing traffic through VPN server");
     LOGI("📍 Your public IP should change after this");
     
@@ -486,7 +486,7 @@ EXPORT int vpnse_client_establish_tunnel(vpnse_client_t* client) {
 EXPORT int vpnse_tunnel_close(vpnse_client_t* client) {
     if (!client) return VPNSE_ERROR_INVALID_CONFIG;
     
-    LOGI("🔌 RVPNSE: Closing VPN tunnel...");
+    LOGI("🔌 rVPNSE: Closing VPN tunnel...");
     
     // Restore original routing
     restore_original_routing(client);
@@ -515,7 +515,7 @@ EXPORT int vpnse_tunnel_close(vpnse_client_t* client) {
         client->status = 2; // back to connected
     }
     
-    LOGI("✅ RVPNSE: VPN tunnel closed successfully");
+    LOGI("✅ rVPNSE: VPN tunnel closed successfully");
     
     return VPNSE_SUCCESS;
 }

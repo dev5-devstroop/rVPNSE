@@ -1,8 +1,8 @@
-# Building RVPNSE
+# Building rVPNSE
 
 ## 🚀 Quick Start
 
-RVPNSE uses a unified Python build system for all platforms. You can build for your current platform in seconds:
+rVPNSE uses a unified Python build system for all platforms. You can build for your current platform in seconds:
 
 ```bash
 # Build for current platform (debug mode)
@@ -271,7 +271,7 @@ The build system is designed for CI/CD environments:
 
 ```yaml
 # GitHub Actions example
-- name: Build RVPNSE
+- name: Build rVPNSE
   run: |
     python3 tools/build.py --all-desktop --mode release
     python3 tools/build.py --test

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-RVPNSE Unified Build System
-Production-ready cross-platform builder for RVPNSE VPN library
+rVPNSE Unified Build System
+Production-ready cross-platform builder for rVPNSE VPN library
 """
 
 import os
@@ -65,7 +65,7 @@ TARGETS = {
     "ios-arm64-sim": Target("ios-arm64-sim", "aarch64-apple-ios-sim", Platform.IOS, "arm64"),
 }
 
-class RVPNSEBuilder:
+class rVPNSEBuilder:
     def __init__(self, project_root: Path, mode: BuildMode = BuildMode.RELEASE):
         self.project_root = project_root
         self.mode = mode
@@ -305,7 +305,7 @@ class RVPNSEBuilder:
         # Create installation script
         install_script = bundle_dir / "install.sh"
         install_script.write_text("""#!/bin/bash
-# RVPNSE Android Library Installer
+# rVPNSE Android Library Installer
 
 set -e
 
@@ -323,7 +323,7 @@ if [ ! -d "$FLUTTER_PROJECT" ]; then
     exit 1
 fi
 
-echo "Installing RVPNSE Android libraries to $JNI_LIBS_DIR"
+echo "Installing rVPNSE Android libraries to $JNI_LIBS_DIR"
 
 # Remove old libraries
 rm -rf "$JNI_LIBS_DIR"
@@ -379,30 +379,30 @@ find "$JNI_LIBS_DIR" -name "*.so" -type f
         
         # Create device framework if we have device targets
         if device_targets:
-            device_framework_dir = bundle_dir / "RVPNSE-Device.framework"
+            device_framework_dir = bundle_dir / "rVPNSE-Device.framework"
             device_framework_dir.mkdir(parents=True, exist_ok=True)
             
             if len(device_targets) == 1:
-                shutil.copy2(device_targets[0][1], device_framework_dir / "RVPNSE")
+                shutil.copy2(device_targets[0][1], device_framework_dir / "rVPNSE")
             else:
                 # Multiple device architectures, use lipo to combine
                 device_paths = [str(path) for _, path in device_targets]
-                lipo_cmd = ["lipo", "-create", "-output", str(device_framework_dir / "RVPNSE")] + device_paths
+                lipo_cmd = ["lipo", "-create", "-output", str(device_framework_dir / "rVPNSE")] + device_paths
                 if not self._run_command(lipo_cmd):
                     logger.error("Failed to create device framework")
                     return None
         
         # Create simulator framework if we have simulator targets
         if simulator_targets:
-            sim_framework_dir = bundle_dir / "RVPNSE-Simulator.framework"
+            sim_framework_dir = bundle_dir / "rVPNSE-Simulator.framework"
             sim_framework_dir.mkdir(parents=True, exist_ok=True)
             
             if len(simulator_targets) == 1:
-                shutil.copy2(simulator_targets[0][1], sim_framework_dir / "RVPNSE")
+                shutil.copy2(simulator_targets[0][1], sim_framework_dir / "rVPNSE")
             else:
                 # Multiple simulator architectures, use lipo to combine
                 sim_paths = [str(path) for _, path in simulator_targets]
-                lipo_cmd = ["lipo", "-create", "-output", str(sim_framework_dir / "RVPNSE")] + sim_paths
+                lipo_cmd = ["lipo", "-create", "-output", str(sim_framework_dir / "rVPNSE")] + sim_paths
                 if not self._run_command(lipo_cmd):
                     logger.error("Failed to create simulator framework")
                     return None
@@ -415,13 +415,13 @@ find "$JNI_LIBS_DIR" -name "*.so" -type f
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>RVPNSE</string>
+    <string>rVPNSE</string>
     <key>CFBundleIdentifier</key>
     <string>com.devstroop.rvpnse</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>RVPNSE</string>
+    <string>rVPNSE</string>
     <key>CFBundlePackageType</key>
     <string>FMWK</string>
     <key>CFBundleShortVersionString</key>
@@ -435,12 +435,12 @@ find "$JNI_LIBS_DIR" -name "*.so" -type f
 </dict>
 </plist>"""
         
-        module_map_content = """framework module RVPNSE {
+        module_map_content = """framework module rVPNSE {
     header "rvpnse.h"
     export *
 }"""
         
-        for framework_name in ["RVPNSE-Device.framework", "RVPNSE-Simulator.framework"]:
+        for framework_name in ["rVPNSE-Device.framework", "rVPNSE-Simulator.framework"]:
             framework_path = bundle_dir / framework_name
             if framework_path.exists():
                 # Create Info.plist
@@ -467,7 +467,7 @@ find "$JNI_LIBS_DIR" -name "*.so" -type f
         # Create installation script
         install_script = bundle_dir / "install.sh"
         install_script.write_text("""#!/bin/bash
-# RVPNSE iOS Framework Installer
+# rVPNSE iOS Framework Installer
 
 set -e
 
@@ -478,8 +478,8 @@ if [ -z "$1" ]; then
 fi
 
 IOS_PROJECT="$1"
-DEVICE_FRAMEWORK="RVPNSE-Device.framework"
-SIMULATOR_FRAMEWORK="RVPNSE-Simulator.framework"
+DEVICE_FRAMEWORK="rVPNSE-Device.framework"
+SIMULATOR_FRAMEWORK="rVPNSE-Simulator.framework"
 
 if [ ! -d "$IOS_PROJECT" ]; then
     echo "Error: iOS project not found: $IOS_PROJECT"
@@ -496,7 +496,7 @@ fi
 FRAMEWORKS_DIR="$IOS_PROJECT/Frameworks"
 mkdir -p "$FRAMEWORKS_DIR"
 
-echo "Installing RVPNSE frameworks to $FRAMEWORKS_DIR"
+echo "Installing rVPNSE frameworks to $FRAMEWORKS_DIR"
 
 # Remove old frameworks
 rm -rf "$FRAMEWORKS_DIR/$DEVICE_FRAMEWORK"
@@ -518,8 +518,8 @@ echo ""
 echo "Manual steps required:"
 echo "1. Open your iOS project in Xcode"
 echo "2. Add the appropriate framework to your project:"
-echo "   - Use RVPNSE-Device.framework for device builds"
-echo "   - Use RVPNSE-Simulator.framework for simulator builds"
+echo "   - Use rVPNSE-Device.framework for device builds"
+echo "   - Use rVPNSE-Simulator.framework for simulator builds"
 echo "3. Embed the framework in your target"
 echo "4. Consider creating build phases to automatically select the correct framework"
 """)
@@ -537,7 +537,7 @@ echo "4. Consider creating build phases to automatically select the correct fram
 
     def build(self, target_names: List[str]) -> Dict[str, bool]:
         """Build specified targets"""
-        logger.info(f"Building RVPNSE in {self.mode.value} mode")
+        logger.info(f"Building rVPNSE in {self.mode.value} mode")
         
         # Set up environment
         if not self._setup_rust_environment():
@@ -616,7 +616,7 @@ echo "4. Consider creating build phases to automatically select the correct fram
                     print(f"                  Android arch: {target.android_arch}")
 
 def main():
-    parser = argparse.ArgumentParser(description="RVPNSE Unified Build System")
+    parser = argparse.ArgumentParser(description="rVPNSE Unified Build System")
     parser.add_argument("--mode", choices=["debug", "release"], default="release",
                        help="Build mode (default: release)")
     parser.add_argument("--targets", nargs="+", 
@@ -643,7 +643,7 @@ def main():
     
     # Find project root (parent of tools directory)
     project_root = Path(__file__).parent.parent
-    builder = RVPNSEBuilder(project_root, BuildMode(args.mode))
+    builder = rVPNSEBuilder(project_root, BuildMode(args.mode))
     
     if args.list:
         builder.list_targets()

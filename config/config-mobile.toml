@@ -1,4 +1,4 @@
-# RVPNSE Mobile Configuration Example
+# rVPNSE Mobile Configuration Example
 # Optimized for mobile devices with battery and data usage considerations
 
 [server]
@@ -28,7 +28,7 @@ password = "mobile_password"
 save_username = true
 
 [vpn]
-adapter_name = "RVPNSEMobile"
+adapter_name = "rVPNSEMobile"
 mtu = 1280  # Smaller MTU for mobile networks
 use_compression = true
 auto_reconnect = true

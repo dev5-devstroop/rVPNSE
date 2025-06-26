@@ -1,6 +1,6 @@
 # 🔧 Advanced Topics
 
-Advanced configuration, optimization, and deployment topics for RVPNSE. Perfect for production deployments and power users.
+Advanced configuration, optimization, and deployment topics for rVPNSE. Perfect for production deployments and power users.
 
 ## 📑 Contents
 
@@ -16,7 +16,7 @@ Advanced configuration, optimization, and deployment topics for RVPNSE. Perfect 
 
 This section is designed for:
 
-- **System Administrators** deploying RVPNSE in production
+- **System Administrators** deploying rVPNSE in production
 - **DevOps Engineers** managing VPN infrastructure
 - **Security Engineers** implementing secure VPN solutions
 - **Performance Engineers** optimizing VPN performance
@@ -370,7 +370,7 @@ services:
       - ./config.toml:/etc/rvpnse/config.toml
       - ./certs:/etc/rvpnse/certs
     environment:
-      - RVPNSE_LOG_LEVEL=info
+      - rVPNSE_LOG_LEVEL=info
     cap_add:
       - NET_ADMIN
     devices:
@@ -457,4 +457,4 @@ Choose your focus area:
 
 ---
 
-**🚀 Ready for Production?** These advanced topics will help you deploy RVPNSE securely and efficiently at scale.
+**🚀 Ready for Production?** These advanced topics will help you deploy rVPNSE securely and efficiently at scale.

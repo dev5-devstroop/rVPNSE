@@ -1,6 +1,6 @@
 # 📚 API Reference
 
-Complete API documentation for RVPNSE. Choose your interface below.
+Complete API documentation for rVPNSE. Choose your interface below.
 
 ## 📑 Contents
 
@@ -11,7 +11,7 @@ Complete API documentation for RVPNSE. Choose your interface below.
 
 ## 🎯 API Overview
 
-RVPNSE provides multiple API interfaces to suit different programming languages and use cases:
+rVPNSE provides multiple API interfaces to suit different programming languages and use cases:
 
 ### **Primary APIs**
 
@@ -59,12 +59,12 @@ RvpnseConnectionState rvpnse_client_state(RvpnseClient* client);
 ### **Result Codes**
 ```c
 typedef enum {
-    RVPNSE_SUCCESS = 0,
-    RVPNSE_ERROR_INVALID_CONFIG = 1,
-    RVPNSE_ERROR_CONNECTION_FAILED = 2,
-    RVPNSE_ERROR_AUTHENTICATION_FAILED = 3,
-    RVPNSE_ERROR_NETWORK_ERROR = 4,
-    RVPNSE_ERROR_TIMEOUT = 5,
+    rVPNSE_SUCCESS = 0,
+    rVPNSE_ERROR_INVALID_CONFIG = 1,
+    rVPNSE_ERROR_CONNECTION_FAILED = 2,
+    rVPNSE_ERROR_AUTHENTICATION_FAILED = 3,
+    rVPNSE_ERROR_NETWORK_ERROR = 4,
+    rVPNSE_ERROR_TIMEOUT = 5,
     // ... more error codes
 } RvpnseResult;
 ```
@@ -146,7 +146,7 @@ max_retries = 3
 ### **C FFI Error Handling**
 ```c
 RvpnseResult result = rvpnse_client_connect(client);
-if (result != RVPNSE_SUCCESS) {
+if (result != rVPNSE_SUCCESS) {
     const char* error_msg = rvpnse_error_string(result);
     printf("Connection failed: %s\\n", error_msg);
     
@@ -244,7 +244,7 @@ rvpnse_client_set_network_callbacks(client, &net_callbacks);
 // Custom certificate validation
 RvpnseResult validate_cert(const char* cert_pem, void* userdata) {
     // Custom validation logic
-    return RVPNSE_SUCCESS;
+    return rVPNSE_SUCCESS;
 }
 
 rvpnse_client_set_cert_validator(client, validate_cert, userdata);

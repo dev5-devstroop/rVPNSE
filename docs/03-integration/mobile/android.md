@@ -1,12 +1,12 @@
 # Android Integration Guide
 
-Integrate RVPNSEust into Android applications using Kotlin/Java and the VpnService framework.
+Integrate rVPNSEust into Android applications using Kotlin/Java and the VpnService framework.
 
 ## 📋 Prerequisites
 
 - **Android Studio** with API level 21+ (Android 5.0+)
 - **NDK** for native library integration
-- **RVPNSEust static library** built for Android targets
+- **rVPNSEust static library** built for Android targets
 - **VPN permissions** in your app manifest
 
 ## 🛠️ Step 1: Build for Android
@@ -208,7 +208,7 @@ class VPNSEVpnService : VpnService() {
     private fun connectVpn(config: String, server: String, username: String, password: String) {
         serviceScope.launch {
             try {
-                // 1. Create RVPNSEust client
+                // 1. Create rVPNSEust client
                 rvpnseClient = VPNSEClient().apply {
                     if (!createClient(config)) {
                         Log.e(TAG, "Failed to create VPNSE client")
@@ -282,7 +282,7 @@ class VPNSEVpnService : VpnService() {
                 try {
                     val length = inputStream.read(buffer)
                     if (length > 0) {
-                        // Forward packet to SoftEther server via RVPNSEust
+                        // Forward packet to SoftEther server via rVPNSEust
                         // Note: This is simplified - you need to implement packet forwarding
                         forwardPacketToServer(buffer, length)
                     }
@@ -299,7 +299,7 @@ class VPNSEVpnService : VpnService() {
         serviceScope.launch {
             while (isRunning) {
                 try {
-                    // Receive packet from SoftEther server via RVPNSEust
+                    // Receive packet from SoftEther server via rVPNSEust
                     val packet = receivePacketFromServer()
                     if (packet != null) {
                         outputStream.write(packet)
@@ -315,12 +315,12 @@ class VPNSEVpnService : VpnService() {
     }
     
     private fun forwardPacketToServer(buffer: ByteArray, length: Int) {
-        // TODO: Implement packet forwarding to SoftEther via RVPNSEust
+        // TODO: Implement packet forwarding to SoftEther via rVPNSEust
         // This requires extending the C API to handle packet I/O
     }
     
     private fun receivePacketFromServer(): ByteArray? {
-        // TODO: Implement packet receiving from SoftEther via RVPNSEust
+        // TODO: Implement packet receiving from SoftEther via rVPNSEust
         // This requires extending the C API to handle packet I/O
         return null
     }
@@ -634,7 +634,7 @@ project("vpnse")
 
 add_library(vpnse_jni SHARED vpnse_jni.cpp)
 
-# Link with RVPNSEust static library
+# Link with rVPNSEust static library
 add_library(rvpnse STATIC IMPORTED)
 set_target_properties(rvpnse PROPERTIES
     IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/librvpnse.a)
@@ -693,15 +693,15 @@ SecurityException: VpnService not prepared
 ```
 VPN connected but no internet access
 ```
-**Solution**: Implement proper packet forwarding between VPN interface and RVPNSEust.
+**Solution**: Implement proper packet forwarding between VPN interface and rVPNSEust.
 
 ## 📚 Related Documentation
 
-- [Quick Start Guide](../quick-start.md) - Build RVPNSEust for Android
+- [Quick Start Guide](../quick-start.md) - Build rVPNSEust for Android
 - [Configuration Reference](../configuration.md) - TOML configuration options
 - [Android Platform Guide](../platforms/android.md) - Android-specific networking details
 - [C API Reference](../api/c-api.md) - Complete API documentation
 
 ---
 
-**🎉 Your Android app is now ready to use RVPNSEust for SoftEther VPN connectivity!**
+**🎉 Your Android app is now ready to use rVPNSEust for SoftEther VPN connectivity!**

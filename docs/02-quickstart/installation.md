@@ -262,7 +262,7 @@ python3 build.py --all --release
 #include <stdio.h>
 
 int main() {
-    if (rvpnse_init() == RVPNSE_SUCCESS) {
+    if (rvpnse_init() == rVPNSE_SUCCESS) {
         printf("rVPNSE initialized successfully!\\n");
         const char* version = rvpnse_version();
         printf("Version: %s\\n", version);
@@ -288,7 +288,7 @@ test.exe
 
 Expected output:
 ```
-RVPNSE initialized successfully!
+rVPNSE initialized successfully!
 Version: 0.1.0
 ```
 

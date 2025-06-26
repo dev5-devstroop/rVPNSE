@@ -1,4 +1,4 @@
-# RVPNSE - Rust VPN SoftEther Library
+# rVPNSE - Rust VPN SoftEther Library
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -7,7 +7,7 @@
 
 **Rust library for SoftEther VPN protocol implementation with C FFI interface.**
 
-RVPNSE provides a robust, cross-platform foundation for building VPN applications with SoftEther protocol support. Perfect for integration into mobile apps, desktop applications, embedded devices and enterprise solutions.
+rVPNSE provides a robust, cross-platform foundation for building VPN applications with SoftEther protocol support. Perfect for integration into mobile apps, desktop applications, embedded devices and enterprise solutions.
 
 ## ✨ Key Features
 
@@ -90,7 +90,7 @@ verify_certificate = true
 
 ## 📦 Integration
 
-RVPNSE supports integration with multiple platforms and languages:
+rVPNSE supports integration with multiple platforms and languages:
 
 | Platform | Language | Guide |
 |----------|----------|-------|
@@ -118,7 +118,7 @@ graph TB
         G[Python/JS FFI]
     end
     
-    subgraph "RVPNSE Core"
+    subgraph "rVPNSE Core"
         H[C FFI Interface]
         I[VPN Client]
         J[Connection Manager]
@@ -233,7 +233,7 @@ cargo fmt --check
 
 ## 📄 License
 
-RVPNSE is licensed under the [Apache License 2.0](LICENSE).
+rVPNSE is licensed under the [Apache License 2.0](LICENSE).
 
 ## 🆘 Support
 

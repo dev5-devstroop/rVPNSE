@@ -129,23 +129,23 @@ RvpnseResult validate_certificate(const char* cert_pem,
     // Parse certificate
     X509* cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
     if (!cert) {
-        return RVPNSE_ERROR_INVALID_CERT;
+        return rVPNSE_ERROR_INVALID_CERT;
     }
     
     // Check expiration
     if (X509_cmp_current_time(X509_get_notAfter(cert)) <= 0) {
         X509_free(cert);
-        return RVPNSE_ERROR_CERT_EXPIRED;
+        return rVPNSE_ERROR_CERT_EXPIRED;
     }
     
     // Check against known good certificates
     if (!is_trusted_certificate(cert)) {
         X509_free(cert);
-        return RVPNSE_ERROR_CERT_UNTRUSTED;
+        return rVPNSE_ERROR_CERT_UNTRUSTED;
     }
     
     X509_free(cert);
-    return RVPNSE_SUCCESS;
+    return rVPNSE_SUCCESS;
 }
 
 // Set validation callback
@@ -339,10 +339,10 @@ void test_basic_connection() {
     assert(client != NULL);
     
     RvpnseResult result = rvpnse_client_connect(client);
-    assert(result == RVPNSE_SUCCESS);
+    assert(result == rVPNSE_SUCCESS);
     
     RvpnseConnectionState state = rvpnse_client_get_state(client);
-    assert(state == RVPNSE_STATE_CONNECTED);
+    assert(state == rVPNSE_STATE_CONNECTED);
     
     rvpnse_client_disconnect(client);
     rvpnse_client_free(client);
@@ -362,8 +362,8 @@ void test_error_handling() {
     RvpnseClient* client = rvpnse_client_new(config);
     RvpnseResult result = rvpnse_client_connect(client);
     
-    assert(result != RVPNSE_SUCCESS);
-    assert(rvpnse_client_get_last_error(client) != RVPNSE_ERROR_NONE);
+    assert(result != rVPNSE_SUCCESS);
+    assert(rvpnse_client_get_last_error(client) != rVPNSE_ERROR_NONE);
     
     rvpnse_client_free(client);
     rvpnse_config_free(config);
@@ -609,17 +609,17 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 # Find rVPNSE library
-find_library(RVPNSE_LIBRARY 
+find_library(rVPNSE_LIBRARY 
     NAMES rvpnse librvpnse
     PATHS /usr/local/lib /opt/rvpnse/lib
 )
 
-find_path(RVPNSE_INCLUDE_DIR
+find_path(rVPNSE_INCLUDE_DIR
     NAMES rvpnse.h
     PATHS /usr/local/include /opt/rvpnse/include
 )
 
-if(NOT RVPNSE_LIBRARY OR NOT RVPNSE_INCLUDE_DIR)
+if(NOT rVPNSE_LIBRARY OR NOT rVPNSE_INCLUDE_DIR)
     message(FATAL_ERROR "rVPNSE library not found")
 endif()
 
@@ -640,8 +640,8 @@ add_executable(rvpnse_app
     src/config_loader.c
 )
 
-target_include_directories(rvpnse_app PRIVATE ${RVPNSE_INCLUDE_DIR})
-target_link_libraries(rvpnse_app ${RVPNSE_LIBRARY} ${PLATFORM_LIBS})
+target_include_directories(rvpnse_app PRIVATE ${rVPNSE_INCLUDE_DIR})
+target_link_libraries(rvpnse_app ${rVPNSE_LIBRARY} ${PLATFORM_LIBS})
 
 # Install rules
 install(TARGETS rvpnse_app DESTINATION bin)
@@ -755,8 +755,8 @@ LanguageClient* language_client_new(void* language_context,
 
 // Enable debug logging
 RvpnseConfig* config = rvpnse_config_new();
-rvpnse_config_set_log_level(config, RVPNSE_LOG_DEBUG);
-rvpnse_config_set_log_output(config, RVPNSE_LOG_CONSOLE);
+rvpnse_config_set_log_level(config, rVPNSE_LOG_DEBUG);
+rvpnse_config_set_log_output(config, rVPNSE_LOG_CONSOLE);
 ```
 
 ## 📚 Additional Resources

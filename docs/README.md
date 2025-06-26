@@ -231,7 +231,7 @@ int main() {
 
 ## 📄 License
 
-RVPNSE is licensed under the [Apache License 2.0](../LICENSE).
+rVPNSE is licensed under the [Apache License 2.0](../LICENSE).
 
 ---
 

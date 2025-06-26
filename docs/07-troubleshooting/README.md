@@ -1,11 +1,11 @@
 # 🐛 Troubleshooting Guide
 
-Comprehensive troubleshooting guide for RVPNSE. Find solutions to common issues and learn debugging techniques.
+Comprehensive troubleshooting guide for rVPNSE. Find solutions to common issues and learn debugging techniques.
 
 ## 📑 Contents
 
 - [🚨 Common Issues](common-issues.md) - Most frequent problems and solutions
-- [🔍 Debugging Guide](debugging.md) - How to debug RVPNSE issues
+- [🔍 Debugging Guide](debugging.md) - How to debug rVPNSE issues
 - [📊 Performance Issues](performance.md) - Performance troubleshooting
 - [🔒 Security Issues](security.md) - Security-related problems
 - [📱 Platform-Specific](platform-issues.md) - Platform-specific troubleshooting
@@ -37,7 +37,7 @@ Comprehensive troubleshooting guide for RVPNSE. Find solutions to common issues 
 |---------|-----------|
 | **Slow connection** | Check MTU settings and network configuration |
 | **High CPU usage** | Disable debug logging in production |
-| **Memory leaks** | Ensure proper cleanup of RVPNSE objects |
+| **Memory leaks** | Ensure proper cleanup of rVPNSE objects |
 | **Frequent disconnections** | Increase keepalive interval |
 
 ## 🔍 Diagnostic Tools
@@ -46,11 +46,11 @@ Comprehensive troubleshooting guide for RVPNSE. Find solutions to common issues 
 ```c
 // Check library status
 const char* version = rvpnse_version();
-printf("RVPNSE Version: %s\\n", version);
+printf("rVPNSE Version: %s\\n", version);
 
 // Test basic functionality
 RvpnseResult result = rvpnse_self_test();
-if (result == RVPNSE_SUCCESS) {
+if (result == rVPNSE_SUCCESS) {
     printf("Self-test passed\\n");
 } else {
     printf("Self-test failed: %s\\n", rvpnse_error_string(result));
@@ -74,7 +74,7 @@ if (!config) {
 
 // Validate specific settings
 RvpnseResult result = rvpnse_config_validate(config);
-if (result != RVPNSE_SUCCESS) {
+if (result != rVPNSE_SUCCESS) {
     printf("Configuration validation failed\\n");
 }
 ```
@@ -83,7 +83,7 @@ if (result != RVPNSE_SUCCESS) {
 ```c
 // Test server connectivity
 RvpnseResult result = rvpnse_test_connectivity("vpn.example.com", 443);
-if (result == RVPNSE_SUCCESS) {
+if (result == rVPNSE_SUCCESS) {
     printf("Server is reachable\\n");
 } else {
     printf("Cannot reach server\\n");
@@ -114,7 +114,7 @@ max_files = 3
 ### **C API Logging**
 ```c
 // Set log level at runtime
-rvpnse_set_log_level(RVPNSE_LOG_DEBUG);
+rvpnse_set_log_level(rVPNSE_LOG_DEBUG);
 
 // Set custom log handler
 void my_log_handler(RvpnseLogLevel level, const char* message, void* userdata) {
@@ -145,34 +145,34 @@ log::info!("Connection attempt starting");
 ### **Debug Variables**
 ```bash
 # Enable debug logging
-export RVPNSE_LOG_LEVEL=debug
+export rVPNSE_LOG_LEVEL=debug
 
 # Enable trace logging (very verbose)
-export RVPNSE_LOG_LEVEL=trace
+export rVPNSE_LOG_LEVEL=trace
 
 # Log to file
-export RVPNSE_LOG_FILE=/tmp/rvpnse.log
+export rVPNSE_LOG_FILE=/tmp/rvpnse.log
 
 # Enable performance profiling
-export RVPNSE_PROFILE=1
+export rVPNSE_PROFILE=1
 
 # Disable hardware acceleration
-export RVPNSE_NO_HARDWARE_ACCEL=1
+export rVPNSE_NO_HARDWARE_ACCEL=1
 ```
 
 ### **Network Variables**
 ```bash
 # Force IPv4 only
-export RVPNSE_IPV4_ONLY=1
+export rVPNSE_IPV4_ONLY=1
 
 # Custom DNS servers
-export RVPNSE_DNS_SERVERS="8.8.8.8,8.8.4.4"
+export rVPNSE_DNS_SERVERS="8.8.8.8,8.8.4.4"
 
 # Connection timeout
-export RVPNSE_CONNECT_TIMEOUT=60
+export rVPNSE_CONNECT_TIMEOUT=60
 
 # Keepalive interval
-export RVPNSE_KEEPALIVE=30
+export rVPNSE_KEEPALIVE=30
 ```
 
 ## 📱 Platform-Specific Issues
@@ -289,7 +289,7 @@ heaptrack_gui heaptrack.your_app.*.gz
 
 ### **Before Reporting Issues**
 
-- [ ] Check RVPNSE version: `rvpnse_version()`
+- [ ] Check rVPNSE version: `rvpnse_version()`
 - [ ] Verify configuration: `rvpnse_config_validate()`
 - [ ] Test connectivity: `rvpnse_test_connectivity()`
 - [ ] Check logs: Enable debug logging
@@ -302,7 +302,7 @@ heaptrack_gui heaptrack.your_app.*.gz
 
 1. **Environment**
    - Operating system and version
-   - RVPNSE version
+   - rVPNSE version
    - Compiler and version (if building from source)
    - Architecture (x86, x64, ARM)
 

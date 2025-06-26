@@ -2,8 +2,8 @@
 name = "rvpnse_client"
 version = "0.1.0"
 edition = "2021"
-authors = ["RVPNSE Team"]
-description = "Example applications demonstrating the RVPNSE static library for SoftEther SSL-VPN connections"
+authors = ["rVPNSE Team"]
+description = "Example applications demonstrating the rVPNSE static library for SoftEther SSL-VPN connections"
 license = "Apache-2.0"
 repository = "https://github.com/vpnse/rvpnse"
 keywords = ["vpn", "softether", "ssl-vpn", "example", "demo"]

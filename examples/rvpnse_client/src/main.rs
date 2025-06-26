@@ -1,6 +1,6 @@
-//! RVPNSE Client Example
+//! rVPNSE Client Example
 //! 
-//! This example demonstrates the complete RVPNSE library functionality:
+//! This example demonstrates the complete rVPNSE library functionality:
 //! - Configuration loading and validation
 //! - Protocol-level connection to SoftEther VPN servers
 //! - Authentication handling
@@ -18,7 +18,7 @@ use clap::Parser;
 
 #[derive(Parser)]
 #[command(name = "rvpnse_client")]
-#[command(about = "RVPNSE VPN client example with full feature demonstration")]
+#[command(about = "rVPNSE VPN client example with full feature demonstration")]
 struct Args {
     /// Path to configuration file
     #[arg(short, long, default_value = "config.toml")]
