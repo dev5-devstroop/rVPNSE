@@ -124,19 +124,19 @@ jobs:
     - name: Run benchmarks - Config
       if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'config' || github.event.inputs.benchmark_type == '' }}
       run: |
-        cargo bench --bench config_benchmarks -- --output-format html
+        cargo bench --bench config_benchmarks
       continue-on-error: true
 
     - name: Run benchmarks - Client
       if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'client' || github.event.inputs.benchmark_type == '' }}
       run: |
-        cargo bench --bench client_benchmarks -- --output-format html
+        cargo bench --bench client_benchmarks
       continue-on-error: true
 
     - name: Run benchmarks - FFI
       if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'ffi' || github.event.inputs.benchmark_type == '' }}
       run: |
-        cargo bench --bench ffi_benchmarks -- --output-format html
+        cargo bench --bench ffi_benchmarks
       continue-on-error: true
 
     - name: Generate benchmark report
