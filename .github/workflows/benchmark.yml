@@ -119,7 +119,9 @@ jobs:
       run: cargo build --release --all-features
 
     - name: Run tests
-      run: cargo test --release --all-features
+      run: |
+        echo "Running tests with verbose output..."
+        cargo test --release --all-features --verbose
 
     - name: Run benchmarks - Config
       if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'config' || github.event.inputs.benchmark_type == '' }}
