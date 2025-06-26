@@ -28,7 +28,7 @@ rVPNSE provides a robust, cross-platform foundation for building VPN application
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
-git clone https://github.com/devstroop/rvpnse.git
+git clone https://github.com/rVPNSE/rVPNSE.git
 cd rvpnse
 python3 tools/build.py --mode release
 ```
@@ -217,7 +217,7 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for deta
 
 ```bash
 # Clone the repository
-git clone https://github.com/devstroop/rvpnse.git
+git clone https://github.com/rVPNSE/rVPNSE.git
 cd rvpnse
 
 # Install dependencies
@@ -238,7 +238,7 @@ rVPNSE is licensed under the [Apache License 2.0](LICENSE).
 ## 🆘 Support
 
 - **📖 Documentation**: [docs/README.md](docs/README.md)
-- **🐛 Bug Reports**: [GitHub Issues](https://github.com/devstroop/rvpnse/issues)
-- **💬 Discussions**: [GitHub Discussions](https://github.com/devstroop/rvpnse/discussions)
+- **🐛 Bug Reports**: [GitHub Issues](https://github.com/rVPNSE/rVPNSE/issues)
+- **💬 Discussions**: [GitHub Discussions](https://github.com/rVPNSE/rVPNSE/discussions)
 - **ℹ️ General Contact**: hi@devstroop.com
 - **🔒 Security**: Email security@devstroop.com for security issues
