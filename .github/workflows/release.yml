@@ -89,7 +89,7 @@ jobs:
             # For regular pushes, create a development release
             CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "//' | sed 's/"//')
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
-            echo "version=v$CURRENT_VERSION-dev-$SHORT_SHA" >> $GITHUB_OUTPUT
+            echo "version=v$CURRENT_VERSION" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Release
