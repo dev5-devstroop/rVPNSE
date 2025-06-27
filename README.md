@@ -211,6 +211,10 @@ Performance metrics are automatically updated by our CI/CD pipeline. Run `cargo 
 | Configuration Parsing | - | - | Pending |
 | Client Operations | - | - | Pending |
 | FFI Interface | - | - | Pending |
+| Connection Limits | - | - | Pending |
+| Crypto Operations | - | - | Pending |
+| Network Throughput | - | - | Pending |
+| Memory Management | - | - | Pending |
 
 *Last updated: Pending first benchmark run*
 <!-- BENCHMARK_RESULTS_END -->
