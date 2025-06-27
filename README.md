@@ -201,6 +201,20 @@ sequenceDiagram
 | **Android** | ARM64, ARMv7, x86_64 | ✅ Passing |
 | **iOS** | ARM64, Simulator | ✅ Passing |
 
+## ⚡ Performance Benchmarks
+
+<!-- BENCHMARK_RESULTS_START -->
+Performance metrics are automatically updated by our CI/CD pipeline. Run `cargo bench` to generate local benchmarks.
+
+| Benchmark Category | Average Time | Throughput | Status |
+|--------------------|--------------|------------|--------|
+| Configuration Parsing | - | - | Pending |
+| Client Operations | - | - | Pending |
+| FFI Interface | - | - | Pending |
+
+*Last updated: Pending first benchmark run*
+<!-- BENCHMARK_RESULTS_END -->
+
 ## 📖 Documentation
 
 - **[📚 Complete Documentation](docs/README.md)** - Comprehensive guides and API reference
