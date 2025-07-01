@@ -171,13 +171,13 @@ impl VpnClient {
     ///
     /// # Errors
     /// Returns an error if authentication fails or client is not connected
-    pub fn authenticate(&mut self, username: &str, password: &str) -> Result<()> {
+    pub async fn authenticate(&mut self, username: &str, password: &str) -> Result<()> {
         let auth_client = self
             .auth_client
             .as_mut()
             .ok_or_else(|| VpnError::Connection("Not connected".to_string()))?;
 
-        auth_client.authenticate(username, password)?;
+        auth_client.authenticate(username, password).await?;
 
         // Initialize session manager after successful authentication
         let mut session_manager = SessionManager::new(&self.config)?;
@@ -232,13 +232,20 @@ impl VpnClient {
     }
 
     /// Send keepalive packet (protocol level)
-    pub fn send_keepalive(&mut self) -> Result<()> {
-        let session_manager = self
-            .session_manager
+    pub async fn send_keepalive(&mut self) -> Result<()> {
+        let auth_client = self
+            .auth_client
             .as_mut()
-            .ok_or_else(|| VpnError::Connection("Not authenticated".to_string()))?;
+            .ok_or_else(|| VpnError::Connection("Not connected".to_string()))?;
 
-        session_manager.send_keepalive()
+        auth_client.send_keepalive().await?;
+
+        // Also use session manager if available
+        if let Some(ref mut session_manager) = self.session_manager {
+            session_manager.send_keepalive()?;
+        }
+
+        Ok(())
     }
 
     /// Check if client is ready for packet forwarding
@@ -288,15 +295,55 @@ impl VpnClient {
     }
 
     /// Get current public IP (for testing if traffic is routed through VPN)
-    pub fn get_current_public_ip(&self) -> Result<String> {
+    pub async fn get_current_public_ip(&self) -> Result<String> {
         if let Some(ref tunnel_manager) = self.tunnel_manager {
-            tunnel_manager.get_current_public_ip()
+            tunnel_manager.get_current_public_ip().await
         } else {
             Err(VpnError::Connection(
                 "No tunnel manager available".to_string(),
             ))
         }
     }
+
+    /// Get VPN session information
+    pub fn get_session_info(&self) -> Option<VpnSessionInfo> {
+        if let Some(ref auth_client) = self.auth_client {
+            Some(VpnSessionInfo {
+                session_id: auth_client.session_id().cloned(),
+                server_endpoint: self.server_endpoint(),
+                is_authenticated: auth_client.is_authenticated(),
+                connection_status: self.status(),
+                // In a real implementation, this would come from the VPN server
+                assigned_ip: if self.status == ConnectionStatus::Connected
+                    || self.status == ConnectionStatus::Tunneling
+                {
+                    Some("192.168.100.10".to_string()) // Simulated VPN-assigned IP
+                } else {
+                    None
+                },
+                // VPN server's public IP that clients see
+                vpn_server_ip: self.server_endpoint().map(|addr| addr.ip().to_string()),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Get authentication client (for accessing session details)
+    pub fn auth_client(&self) -> Option<&AuthClient> {
+        self.auth_client.as_ref()
+    }
+}
+
+/// VPN session information
+#[derive(Debug, Clone)]
+pub struct VpnSessionInfo {
+    pub session_id: Option<String>,
+    pub server_endpoint: Option<SocketAddr>,
+    pub is_authenticated: bool,
+    pub connection_status: ConnectionStatus,
+    pub assigned_ip: Option<String>,
+    pub vpn_server_ip: Option<String>,
 }
 
 impl Drop for VpnClient {

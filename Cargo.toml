@@ -35,6 +35,15 @@ thiserror = "2.0"
 
 # Networking utilities
 bytes = "1.0"
+# HTTP client for SoftEther SSL-VPN protocol
+reqwest = { version = "0.12", features = ["rustls-tls", "stream"] }
+url = "2.5"
+# Base64 encoding for authentication
+base64 = "0.22"
+# Network interface management
+ipnet = "2.9"
+# IP address detection
+public-ip = "0.2"
 
 # UUID generation for sessions
 uuid = { version = "1.0", features = ["v4"] }
@@ -44,6 +53,8 @@ lazy_static = "1.4"
 
 # Async runtime (for examples)
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "time"], optional = true }
+# Logging
+log = "0.4"
 
 [dev-dependencies]
 # For testing and examples
@@ -71,9 +82,12 @@ name = "ffi_benchmarks"
 harness = false
 
 [features]
-# Default to ring for most platforms
-default = ["ring-crypto"]
+# Default to ring for most platforms with basic functionality
+default = ["ring-crypto", "tokio-runtime"]
 
 # Feature flags for crypto providers  
 ring-crypto = ["ring", "rustls/ring"]
 aws-lc-crypto = ["aws-lc-rs", "rustls/aws_lc_rs"]
+
+# Runtime features
+tokio-runtime = ["tokio"]

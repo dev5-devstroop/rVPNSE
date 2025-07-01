@@ -177,7 +177,10 @@ pub unsafe extern "C" fn vpnse_client_authenticate(
         Err(_) => return VPNSEError::InvalidParameter as c_int,
     };
 
-    match client.authenticate(username_str, password_str) {
+    match tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(client.authenticate(username_str, password_str))
+    {
         Ok(_) => VPNSEError::Success as c_int,
         Err(err) => VPNSEError::from(err) as c_int,
     }
@@ -340,7 +343,10 @@ pub unsafe extern "C" fn vpnse_get_public_ip(
     }
 
     let client = &mut *client;
-    match client.get_current_public_ip() {
+    match tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(client.get_current_public_ip())
+    {
         Ok(ip) => {
             let ip_cstr = match CString::new(ip) {
                 Ok(s) => s,

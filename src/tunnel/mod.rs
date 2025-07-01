@@ -126,8 +126,19 @@ impl TunnelManager {
     }
 
     /// Get the current public IP
-    pub fn get_current_public_ip(&self) -> Result<String> {
-        // Always query real public IP from external service
+    pub async fn get_current_public_ip(&self) -> Result<String> {
+        // Use the public-ip crate for better reliability
+        match public_ip::addr().await {
+            Some(ip) => Ok(ip.to_string()),
+            None => {
+                // Fallback to manual HTTP requests
+                self.get_public_ip_fallback().await
+            }
+        }
+    }
+
+    /// Fallback method for getting public IP using HTTP requests
+    async fn get_public_ip_fallback(&self) -> Result<String> {
         let services = [
             "https://api.ipify.org",
             "https://icanhazip.com",
@@ -135,14 +146,16 @@ impl TunnelManager {
             "https://checkip.amazonaws.com",
         ];
 
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .map_err(|e| VpnError::Network(format!("Failed to create HTTP client: {}", e)))?;
+
         for service in &services {
-            if let Ok(output) = Command::new("curl")
-                .args(["-s", "--max-time", "5", service])
-                .output()
-            {
-                if output.status.success() {
-                    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    if !ip.is_empty() && ip.chars().all(|c| c.is_ascii_digit() || c == '.') {
+            if let Ok(response) = client.get(*service).send().await {
+                if let Ok(ip_text) = response.text().await {
+                    let ip = ip_text.trim().to_string();
+                    if !ip.is_empty() && self.is_valid_ip(&ip) {
                         return Ok(ip);
                     }
                 }
@@ -152,6 +165,12 @@ impl TunnelManager {
         Err(VpnError::Connection(
             "Failed to get public IP from any service".into(),
         ))
+    }
+
+    /// Validate if a string is a valid IP address
+    fn is_valid_ip(&self, ip: &str) -> bool {
+        use std::net::IpAddr;
+        ip.parse::<IpAddr>().is_ok()
     }
 
     /// Store the original default route
@@ -250,10 +269,10 @@ pub fn get_tunnel_interface() -> Option<(String, String, String, String)> {
     }
 }
 
-pub fn get_tunnel_public_ip() -> Result<String> {
+pub async fn get_tunnel_public_ip() -> Result<String> {
     let global_manager = TUNNEL_MANAGER.lock().unwrap();
     if let Some(ref manager) = *global_manager {
-        manager.get_current_public_ip()
+        manager.get_current_public_ip().await
     } else {
         Err(VpnError::Connection("No tunnel established".to_string()))
     }
