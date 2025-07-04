@@ -4,6 +4,7 @@ use crate::error::Result;
 use std::net::SocketAddr;
 
 pub mod auth;
+pub mod binary;
 pub mod packets;
 pub mod session;
 

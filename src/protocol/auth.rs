@@ -7,6 +7,7 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Authentication methods supported by `SoftEther` VPN
 #[derive(Debug, Clone, PartialEq)]
@@ -128,7 +129,7 @@ impl AuthClient {
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| {
                         // Generate a session ID if server doesn't provide one
-                        format!("sess_{}", uuid::Uuid::new_v4().to_string().replace('-', ""))
+                        format!("sess_{}", Uuid::new_v4().simple().to_string())
                     });
 
                 log::info!("Established SSL-VPN session: {} (endpoint: {})", session_id, endpoint);

@@ -375,18 +375,18 @@ impl ConnectionTracker {
     /// Check if we can make a new connection based on limits
     fn can_connect(&self, config: &crate::config::ConnectionLimitsConfig) -> Result<()> {
         // Check concurrent connection limit
-        if config.max_concurrent_connections > 0 {
+        if config.max_connections > 0 {
             let current_connections = self.active_connections.load(Ordering::Relaxed);
-            if current_connections >= config.max_concurrent_connections {
+            if current_connections >= config.max_connections {
                 return Err(VpnError::ConnectionLimitReached(format!(
                     "Maximum concurrent connections reached: {}/{}",
-                    current_connections, config.max_concurrent_connections
+                    current_connections, config.max_connections
                 )));
             }
         }
 
         // Check rate limiting (connections per minute)
-        if config.max_connections_per_minute > 0 {
+        if config.rate_limit_rps > 0 {
             let mut attempts = self.connection_attempts.lock().unwrap();
             let now = Instant::now();
             let one_minute_ago = now - Duration::from_secs(60);
@@ -394,11 +394,11 @@ impl ConnectionTracker {
             // Remove old attempts
             attempts.retain(|&attempt_time| attempt_time > one_minute_ago);
 
-            if attempts.len() >= config.max_connections_per_minute as usize {
+            if attempts.len() >= config.rate_limit_rps as usize {
                 return Err(VpnError::RateLimitExceeded(format!(
                     "Too many connection attempts: {}/{} per minute",
                     attempts.len(),
-                    config.max_connections_per_minute
+                    config.rate_limit_rps
                 )));
             }
 
@@ -414,7 +414,7 @@ impl ConnectionTracker {
         endpoint: &str,
         config: &crate::config::ConnectionLimitsConfig,
     ) -> Result<()> {
-        if config.max_retry_attempts == 0 {
+        if config.retry_attempts == 0 {
             return Ok(());
         }
 
@@ -422,10 +422,10 @@ impl ConnectionTracker {
         let now = Instant::now();
 
         if let Some((count, last_attempt)) = retries.get(endpoint) {
-            if *count >= config.max_retry_attempts {
+            if *count >= config.retry_attempts {
                 let time_since_last = now.duration_since(*last_attempt);
                 let retry_cooldown = Duration::from_secs(
-                    config.retry_delay as u64 * (*count - config.max_retry_attempts + 1) as u64,
+                    config.retry_delay as u64 * (*count - config.retry_attempts + 1) as u64,
                 );
 
                 if time_since_last < retry_cooldown {
@@ -433,7 +433,7 @@ impl ConnectionTracker {
                         "Too many retry attempts for {}: {}/{}. Wait {} seconds.",
                         endpoint,
                         count,
-                        config.max_retry_attempts,
+                        config.retry_attempts,
                         (retry_cooldown - time_since_last).as_secs()
                     )));
                 } else {

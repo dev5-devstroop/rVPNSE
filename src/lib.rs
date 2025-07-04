@@ -24,6 +24,7 @@
 //! documentation in `docs/integration/` for platform-specific guides.
 
 pub mod client;
+pub mod client_optimized;
 pub mod config;
 pub mod crypto;
 pub mod error;
@@ -32,6 +33,7 @@ pub mod tunnel;
 
 // Re-export core types for static library interface
 pub use client::{ConnectionStatus, VpnClient};
+pub use client_optimized::{OptimizedVpnClient, PerformanceConfig, PerformanceSnapshot};
 pub use config::Config;
 pub use error::{Result, VpnError};
 pub use protocol::packets::{Packet, PacketBuilder, PacketType};

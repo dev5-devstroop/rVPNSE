@@ -56,6 +56,13 @@ tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "time"
 # Logging
 log = "0.4"
 
+# Platform-specific dependencies for TUN/TAP
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["handleapi", "fileapi", "ioapiset", "synchapi", "winnt", "minwinbase", "errhandlingapi", "winerror"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # For testing and examples
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "time"] }

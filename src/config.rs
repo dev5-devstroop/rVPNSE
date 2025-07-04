@@ -49,44 +49,47 @@ pub struct ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionLimitsConfig {
     /// Maximum number of concurrent connections (0 = unlimited)
-    #[serde(default)]
-    pub max_concurrent_connections: u32,
-    /// Maximum connection attempts per minute (0 = unlimited)
-    #[serde(default)]
-    pub max_connections_per_minute: u32,
-    /// Maximum retry attempts for failed connections
-    #[serde(default = "default_max_retries")]
-    pub max_retry_attempts: u32,
-    /// Delay between retry attempts in seconds
+    #[serde(default = "default_max_connections")]
+    pub max_connections: u32,
+    /// Connection pooling enabled
+    #[serde(default = "default_true")]
+    pub enable_pooling: bool,
+    /// Pool size for persistent connections
+    #[serde(default = "default_pool_size")]
+    pub pool_size: u32,
+    /// Connection idle timeout in seconds
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout: u32,
+    /// Maximum connection lifetime in seconds
+    #[serde(default = "default_max_lifetime")]
+    pub max_lifetime: u32,
+    /// Enable connection multiplexing
+    #[serde(default = "default_false")]
+    pub enable_multiplexing: bool,
+    /// Maximum multiplexed streams per connection
+    #[serde(default = "default_max_streams")]
+    pub max_streams_per_connection: u32,
+    /// Connection retry attempts
+    #[serde(default = "default_retry_attempts")]
+    pub retry_attempts: u32,
+    /// Retry delay in milliseconds
     #[serde(default = "default_retry_delay")]
     pub retry_delay: u32,
-    /// Connection queue size (for pooling)
-    #[serde(default = "default_queue_size")]
-    pub connection_queue_size: u32,
-    /// Enable connection pooling
-    #[serde(default)]
-    pub enable_connection_pooling: bool,
-    /// Pool idle timeout in seconds
-    #[serde(default = "default_pool_idle_timeout")]
-    pub pool_idle_timeout: u32,
-    /// Pool maximum lifetime in seconds
-    #[serde(default = "default_pool_max_lifetime")]
-    pub pool_max_lifetime: u32,
-}
-
-impl Default for ConnectionLimitsConfig {
-    fn default() -> Self {
-        Self {
-            max_concurrent_connections: 0,    // Unlimited by default
-            max_connections_per_minute: 0,    // Unlimited by default
-            max_retry_attempts: 3,            // Reasonable retry limit
-            retry_delay: 5,                   // 5 second delay between retries
-            connection_queue_size: 10,        // Queue up to 10 connections
-            enable_connection_pooling: false, // Disabled by default for simplicity
-            pool_idle_timeout: 300,           // 5 minutes idle timeout
-            pool_max_lifetime: 3600,          // 1 hour maximum lifetime
-        }
-    }
+    /// Exponential backoff factor
+    #[serde(default = "default_backoff_factor")]
+    pub backoff_factor: f64,
+    /// Maximum retry delay in seconds
+    #[serde(default = "default_max_retry_delay")]
+    pub max_retry_delay: u32,
+    /// Connection health check interval in seconds
+    #[serde(default = "default_health_check_interval")]
+    pub health_check_interval: u32,
+    /// Rate limiting: requests per second
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit_rps: u32,
+    /// Rate limiting: burst size
+    #[serde(default = "default_burst_size")]
+    pub rate_limit_burst: u32,
 }
 
 /// Authentication configuration
@@ -99,63 +102,57 @@ pub struct AuthConfig {
     pub username: Option<String>,
     /// Password for password authentication
     pub password: Option<String>,
-    /// Path to client certificate for certificate authentication
-    pub certificate_path: Option<String>,
-    /// Path to private key for certificate authentication
-    pub private_key_path: Option<String>,
-    /// Password for certificate file
-    pub certificate_password: Option<String>,
+    /// Client certificate file path
+    pub client_cert: Option<String>,
+    /// Client private key file path
+    pub client_key: Option<String>,
+    /// CA certificate file path
+    pub ca_cert: Option<String>,
 }
 
 /// Network configuration settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkConfig {
-    /// Whether to automatically configure routes
-    #[serde(default)]
-    pub auto_route: bool,
-    /// Whether to override DNS settings
-    #[serde(default)]
-    pub dns_override: bool,
-    /// DNS server addresses
-    #[serde(default)]
-    pub dns_servers: Vec<String>,
-    /// MTU value
-    #[serde(default = "default_mtu")]
-    pub mtu: u16,
-    /// Local IP address
-    pub local_ip: Option<String>,
-    /// Custom routes
-    #[serde(default)]
-    pub custom_routes: Vec<String>,
-    /// Excluded routes
-    #[serde(default)]
-    pub exclude_routes: Vec<String>,
+    /// Enable IPv6 support
+    #[serde(default = "default_false")]
+    pub enable_ipv6: bool,
+    /// Bind to specific local address
+    pub bind_address: Option<String>,
+    /// Use proxy for connections
+    pub proxy_url: Option<String>,
+    /// User agent string
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
+    /// Enable HTTP/2 support
+    #[serde(default = "default_true")]
+    pub enable_http2: bool,
+    /// TCP keep-alive enabled
+    #[serde(default = "default_true")]
+    pub tcp_keepalive: bool,
+    /// TCP no-delay enabled
+    #[serde(default = "default_true")]
+    pub tcp_nodelay: bool,
+    /// Socket buffer sizes
+    pub socket_buffer_size: Option<u32>,
 }
 
 /// Logging configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig {
-    /// Log level
+    /// Log level (error, warn, info, debug, trace)
     #[serde(default = "default_log_level")]
     pub level: String,
-    /// Whether to log to a file
-    #[serde(default)]
-    pub file_logging: bool,
-    /// Path to log file
-    pub log_path: Option<String>,
+    /// Log file path (optional, logs to console if not specified)
+    pub file: Option<String>,
+    /// Enable JSON logging format
+    #[serde(default = "default_false")]
+    pub json_format: bool,
+    /// Enable colored output
+    #[serde(default = "default_true")]
+    pub colored: bool,
 }
 
-impl Default for LoggingConfig {
-    fn default() -> Self {
-        Self {
-            level: "info".to_string(),
-            file_logging: false,
-            log_path: None,
-        }
-    }
-}
-
-/// Main configuration structure
+/// Main VPN configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Server configuration
@@ -171,6 +168,9 @@ pub struct Config {
     #[serde(default)]
     pub logging: LoggingConfig,
 }
+
+/// Type alias for backward compatibility
+pub type VpnConfig = Config;
 
 impl Config {
     /// Load configuration from a TOML file
@@ -189,142 +189,170 @@ impl Config {
 
     /// Validate the configuration
     pub fn validate(&self) -> Result<()> {
-        // Validate server settings
+        // Validate server configuration
         if self.server.hostname.is_empty() {
-            return Err(VpnError::Config(
-                "Server hostname cannot be empty".to_string(),
-            ));
+            return Err(VpnError::Config("Server hostname cannot be empty".into()));
         }
 
         if self.server.port == 0 {
-            return Err(VpnError::Config("Server port cannot be zero".to_string()));
+            return Err(VpnError::Config("Server port must be non-zero".into()));
         }
 
         if self.server.hub.is_empty() {
-            return Err(VpnError::Config("Hub name cannot be empty".to_string()));
+            return Err(VpnError::Config("Hub name cannot be empty".into()));
         }
 
-        // Validate authentication settings
+        // Validate authentication configuration
         match self.auth.method {
             AuthMethod::Password => {
                 if self.auth.username.is_none() || self.auth.password.is_none() {
                     return Err(VpnError::Config(
-                        "Username and password are required for password authentication"
-                            .to_string(),
+                        "Username and password required for password authentication".into(),
                     ));
                 }
             }
             AuthMethod::Certificate => {
-                if self.auth.certificate_path.is_none() || self.auth.private_key_path.is_none() {
+                if self.auth.client_cert.is_none() || self.auth.client_key.is_none() {
                     return Err(VpnError::Config(
-                        "Certificate and private key paths are required for certificate authentication".to_string()
+                        "Client certificate and key required for certificate authentication".into(),
                     ));
                 }
             }
             AuthMethod::Anonymous => {
-                // No additional validation needed
+                // No additional validation required for anonymous
             }
         }
 
-        // Validate network settings
-        if self.network.mtu < 576 || self.network.mtu > 9000 {
+        // Validate network configuration
+        if let Some(ref bind_addr) = self.network.bind_address {
+            if bind_addr.parse::<std::net::IpAddr>().is_err() {
+                return Err(VpnError::Config(format!(
+                    "Invalid bind address: {bind_addr}"
+                )));
+            }
+        }
+
+        // Validate connection limits
+        if self.connection_limits.max_connections > 1000 {
             return Err(VpnError::Config(
-                "MTU must be between 576 and 9000".to_string(),
+                "Maximum connections cannot exceed 1000".into(),
+            ));
+        }
+
+        if self.connection_limits.pool_size > self.connection_limits.max_connections {
+            return Err(VpnError::Config(
+                "Pool size cannot exceed maximum connections".into(),
             ));
         }
 
         Ok(())
     }
 
-    /// Create a default configuration for VPN Gate
-    pub fn default_vpn_gate() -> Self {
+    /// Create a default configuration for testing
+    pub fn default_test() -> Self {
         Self {
             server: ServerConfig {
-                hostname: "public-vpn-247.opengw.net".to_string(),
+                hostname: "localhost".to_string(),
                 port: 443,
-                hub: "VPNGATE".to_string(),
+                hub: "DEFAULT".to_string(),
                 use_ssl: true,
-                verify_certificate: false,
+                verify_certificate: false, // Disabled for testing
                 timeout: 30,
-                keepalive_interval: 50,
+                keepalive_interval: 60,
             },
+            connection_limits: ConnectionLimitsConfig::default(),
             auth: AuthConfig {
                 method: AuthMethod::Password,
-                username: Some("vpn".to_string()),
-                password: Some("vpn".to_string()),
-                certificate_path: None,
-                private_key_path: None,
-                certificate_password: None,
+                username: Some("test".to_string()),
+                password: Some("test".to_string()),
+                client_cert: None,
+                client_key: None,
+                ca_cert: None,
             },
-            network: NetworkConfig {
-                auto_route: false,
-                dns_override: false,
-                dns_servers: vec![],
-                mtu: 1500,
-                local_ip: None,
-                custom_routes: vec![],
-                exclude_routes: vec![],
-            },
+            network: NetworkConfig::default(),
             logging: LoggingConfig::default(),
-            connection_limits: ConnectionLimitsConfig::default(),
         }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self::default_vpn_gate()
     }
 }
 
 impl FromStr for Config {
     type Err = VpnError;
 
-    fn from_str(content: &str) -> Result<Self> {
-        toml::from_str(content).map_err(|e| VpnError::Config(format!("Failed to parse TOML: {e}")))
+    fn from_str(s: &str) -> Result<Self> {
+        let config: Config = toml::from_str(s)
+            .map_err(|e| VpnError::Config(format!("Failed to parse TOML config: {e}")))?;
+
+        config.validate()?;
+        Ok(config)
     }
 }
 
-// Default value functions for serde
-fn default_true() -> bool {
-    true
+impl Default for ConnectionLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: default_max_connections(),
+            enable_pooling: default_true(),
+            pool_size: default_pool_size(),
+            idle_timeout: default_idle_timeout(),
+            max_lifetime: default_max_lifetime(),
+            enable_multiplexing: default_false(),
+            max_streams_per_connection: default_max_streams(),
+            retry_attempts: default_retry_attempts(),
+            retry_delay: default_retry_delay(),
+            backoff_factor: default_backoff_factor(),
+            max_retry_delay: default_max_retry_delay(),
+            health_check_interval: default_health_check_interval(),
+            rate_limit_rps: default_rate_limit(),
+            rate_limit_burst: default_burst_size(),
+        }
+    }
 }
 
-fn default_timeout() -> u32 {
-    30
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            enable_ipv6: default_false(),
+            bind_address: None,
+            proxy_url: None,
+            user_agent: default_user_agent(),
+            enable_http2: default_true(),
+            tcp_keepalive: default_true(),
+            tcp_nodelay: default_true(),
+            socket_buffer_size: None,
+        }
+    }
 }
 
-fn default_keepalive() -> u32 {
-    60
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            level: default_log_level(),
+            file: None,
+            json_format: default_false(),
+            colored: default_true(),
+        }
+    }
 }
 
-fn default_mtu() -> u16 {
-    1500
-}
-
-fn default_log_level() -> String {
-    "info".to_string()
-}
-
-fn default_max_retries() -> u32 {
-    3
-}
-
-fn default_retry_delay() -> u32 {
-    5
-}
-
-fn default_queue_size() -> u32 {
-    10
-}
-
-fn default_pool_idle_timeout() -> u32 {
-    300
-}
-
-fn default_pool_max_lifetime() -> u32 {
-    3600
-}
+// Default value functions
+fn default_true() -> bool { true }
+fn default_false() -> bool { false }
+fn default_timeout() -> u32 { 30 }
+fn default_keepalive() -> u32 { 60 }
+fn default_max_connections() -> u32 { 10 }
+fn default_pool_size() -> u32 { 5 }
+fn default_idle_timeout() -> u32 { 300 }
+fn default_max_lifetime() -> u32 { 3600 }
+fn default_max_streams() -> u32 { 100 }
+fn default_retry_attempts() -> u32 { 3 }
+fn default_retry_delay() -> u32 { 1000 }
+fn default_backoff_factor() -> f64 { 2.0 }
+fn default_max_retry_delay() -> u32 { 30 }
+fn default_health_check_interval() -> u32 { 30 }
+fn default_rate_limit() -> u32 { 100 }
+fn default_burst_size() -> u32 { 200 }
+fn default_user_agent() -> String { "rVPNSE/0.1.0".to_string() }
+fn default_log_level() -> String { "info".to_string() }
 
 #[cfg(test)]
 mod tests {
@@ -332,11 +360,15 @@ mod tests {
 
     #[test]
     fn test_config_parsing() {
-        let toml_content = r#"
+        let config_toml = r#"
 [server]
 hostname = "vpn.example.com"
 port = 443
 hub = "VPN"
+use_ssl = true
+verify_certificate = true
+timeout = 30
+keepalive_interval = 60
 
 [auth]
 method = "password"
@@ -344,32 +376,65 @@ username = "testuser"
 password = "testpass"
 
 [network]
-auto_route = false
-dns_override = false
-mtu = 1500
+enable_ipv6 = false
+user_agent = "TestClient/1.0"
+enable_http2 = true
+tcp_keepalive = true
+tcp_nodelay = true
 
 [logging]
-level = "info"
+level = "debug"
+colored = true
+json_format = false
 "#;
 
-        let config = toml_content
-            .parse::<Config>()
-            .expect("Failed to parse config");
+        let config: Config = config_toml.parse().unwrap();
         assert_eq!(config.server.hostname, "vpn.example.com");
         assert_eq!(config.server.port, 443);
         assert_eq!(config.auth.method, AuthMethod::Password);
         assert_eq!(config.auth.username, Some("testuser".to_string()));
+        assert_eq!(config.network.user_agent, "TestClient/1.0");
+        assert_eq!(config.logging.level, "debug");
     }
 
     #[test]
     fn test_config_validation() {
-        let mut config = Config::default_vpn_gate();
-
+        let mut config = Config::default_test();
+        
         // Valid config should pass
         assert!(config.validate().is_ok());
-
-        // Invalid hostname should fail
+        
+        // Empty hostname should fail
         config.server.hostname = String::new();
         assert!(config.validate().is_err());
+        
+        // Reset hostname and test zero port
+        config.server.hostname = "test.com".to_string();
+        config.server.port = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_defaults() {
+        let config = Config::default_test();
+        assert_eq!(config.server.hostname, "localhost");
+        assert_eq!(config.server.port, 443);
+        assert!(!config.server.verify_certificate); // Disabled for testing
+        assert_eq!(config.auth.method, AuthMethod::Password);
+        assert_eq!(config.auth.username, Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_toml_serialization() {
+        let config = Config::default_test();
+        let toml_str = config.to_toml().unwrap();
+        assert!(toml_str.contains("[server]"));
+        assert!(toml_str.contains("[auth]"));
+        assert!(toml_str.contains("[network]"));
+        assert!(toml_str.contains("[logging]"));
+        
+        // Parse back to ensure round-trip works
+        let parsed_config: Config = toml_str.parse().unwrap();
+        assert_eq!(config.server.hostname, parsed_config.server.hostname);
     }
 }
