@@ -314,7 +314,17 @@ impl Pack {
     /// Deserialize PACK from binary format
     pub fn from_bytes(mut data: Bytes) -> Result<Self> {
         log::debug!("Parsing PACK from {} bytes", data.len());
-        log::debug!("Raw bytes (first 32): {:?}", &data[..std::cmp::min(32, data.len())]);
+        log::debug!("Raw bytes (first 64): {:?}", &data[..std::cmp::min(64, data.len())]);
+        
+        // Let's examine the entire PACK structure first
+        if data.len() >= 16 {
+            log::debug!("Detailed byte analysis:");
+            log::debug!("Bytes 0-3 (num elements): {:?} = {}", &data[0..4], u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
+            log::debug!("Bytes 4-7 (first name len): {:?} = {}", &data[4..8], u32::from_be_bytes([data[4], data[5], data[6], data[7]]));
+            if data.len() >= 32 {
+                log::debug!("Bytes 8-31: {:?}", &data[8..32]);
+            }
+        }
         
         let original_len = data.len();
         
@@ -337,12 +347,45 @@ impl Pack {
         for i in 0..num_elements {
             let bytes_before = data.len();
             log::debug!("Parsing element {} of {}, bytes remaining before element: {}, offset: {}", 
-                       i + 1, num_elements, bytes_before, original_len - bytes_before);
+                       i + 1, num_elements, data.len(), bytes_before - data.len());
+        
+            // Add detailed hex dump of the next 16 bytes for debugging
+            let debug_bytes = &data[..std::cmp::min(16, data.len())];
+            log::debug!("Next 16 bytes at element start: {:02x?}", debug_bytes);
+            
             let element = Self::read_element(&mut data)?;
             let bytes_after = data.len();
             log::debug!("Parsed element: name={}, values={}, consumed {} bytes", 
                        element.name, element.values.len(), bytes_before - bytes_after);
             elements.push(element);
+
+            // After parsing first element, show what's next for debugging
+            if i == 0 && data.len() >= 16 {
+                log::debug!("After first element: {} bytes remaining", data.len());
+                log::debug!("Next 16 bytes after first element: {:02x?}", &data[..16]);
+                
+                // Try skipping alignment bytes until we find a reasonable name length
+                let mut skipped_count = 0;
+                while data.len() >= 4 && skipped_count < 4 {
+                    // Peek at what the name length would be
+                    let potential_name_len = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+                    
+                    if potential_name_len > 0 && potential_name_len < 100 {
+                        // This looks like a reasonable name length, stop skipping
+                        log::debug!("Found reasonable name length {} after skipping {} bytes", potential_name_len, skipped_count);
+                        break;
+                    }
+                    
+                    // Skip one byte and try again
+                    let skipped = data.get_u8();
+                    skipped_count += 1;
+                    log::debug!("Skipped alignment byte #{}: 0x{:02x}", skipped_count, skipped);
+                }
+                
+                if data.len() >= 16 {
+                    log::debug!("After skipping {} alignment bytes: {:02x?}", skipped_count, &data[..16]);
+                }
+            }
         }
 
         log::debug!("Successfully parsed PACK with {} elements", elements.len());
@@ -378,15 +421,21 @@ impl Pack {
             .map_err(|_| VpnError::Protocol("Invalid element name UTF-8".to_string()))?;
         log::debug!("Element name: '{}', consumed {} bytes, {} remaining", name, name_len, data.len());
         
-        // SoftEther PACK format: element names are padded to 4-byte boundary after the name length field
-        // Total consumed = name_len_field (4) + name_len + padding
-        let total_name_field_len = 4 + name_len; // 4 bytes for length + actual name bytes  
-        let padded_len = (total_name_field_len + 3) & !3; // Round up to 4-byte boundary
-        let padding_needed = padded_len - total_name_field_len;
+        // SoftEther PACK format: element name data is padded to 4-byte boundary
+        // We need to pad just the name data (not including the length field)
+        let padded_name_len = (name_len + 3) & !3; // Round name_len up to 4-byte boundary
+        let padding_needed = padded_name_len - name_len;
         
         if padding_needed > 0 && data.len() >= padding_needed {
             let padding = data.copy_to_bytes(padding_needed);
-            log::debug!("Skipped {} alignment padding bytes after name: {:?}", padding_needed, padding);
+            log::debug!("Skipped {} name padding bytes: {:?}, {} remaining", padding_needed, padding, data.len());
+        }
+        
+        // Additional alignment: SoftEther appears to need one more byte alignment after string padding
+        // Based on the binary analysis, there's an extra 0x00 byte that we need to skip
+        if data.len() > 0 && data[0] == 0 {
+            let extra_byte = data.get_u8();
+            log::debug!("Skipped extra alignment byte: 0x{:02x}, {} remaining", extra_byte, data.len());
         }
         
         log::debug!("After name + padding, next 12 bytes: {:?}", &data[..std::cmp::min(12, data.len())]);
@@ -398,8 +447,15 @@ impl Pack {
         // Read element type (big-endian)
         log::debug!("About to read element type, next 12 bytes: {:?}", 
                    &data[..std::cmp::min(12, data.len())]);
+        log::debug!("Element type raw bytes (hex): {:02x} {:02x} {:02x} {:02x}", 
+                   data[0], data[1], data[2], data[3]);
         let element_type_raw = data.get_u32();
-        log::debug!("Element type raw: {}, consumed 4 bytes, {} remaining", element_type_raw, data.len());
+        log::debug!("Element type raw: {} (0x{:08x}), consumed 4 bytes, {} remaining", 
+                   element_type_raw, element_type_raw, data.len());
+        
+        // Convert to decimal to see what we're getting
+        log::debug!("Expected element type range: 0-4, got: {}", element_type_raw);
+        
         let element_type = ElementType::try_from(element_type_raw)?;
         log::debug!("Element type: {:?}", element_type);
 
@@ -425,7 +481,9 @@ impl Pack {
             log::debug!("Value {} length: {}", j, value_len);
             
             if data.len() < value_len {
-                return Err(VpnError::Protocol("Not enough data for value".to_string()));
+                log::error!("Value {} claims length {} but only {} bytes remaining. Raw bytes around position: {:?}", 
+                           j, value_len, data.len(), &data[..std::cmp::min(16, data.len())]);
+                return Err(VpnError::Protocol(format!("Not enough data for value {} (need {}, have {})", j, value_len, data.len())));
             }
 
             let value_bytes = data.copy_to_bytes(value_len);
@@ -433,10 +491,24 @@ impl Pack {
             let value = Value::from_bytes(element_type, &value_bytes)?;
             log::debug!("Value {}: {:?}, consumed {} bytes, {} remaining", j, value, value_len, data.len());
             values.push(value);
+            
+            // SoftEther PACK format: values are padded to 4-byte boundary
+            let padded_value_len = (value_len + 3) & !3; // Round up to 4-byte boundary
+            let value_padding_needed = padded_value_len - value_len;
+            
+            if value_padding_needed > 0 && data.len() >= value_padding_needed {
+                let value_padding = data.copy_to_bytes(value_padding_needed);
+                log::debug!("Skipped {} value padding bytes: {:?}, {} remaining", value_padding_needed, value_padding, data.len());
+            }
         }
 
         let bytes_after = data.len();
         log::debug!("Element '{}' parsing complete, total consumed: {} bytes", name, bytes_before - bytes_after);
+
+        // SoftEther PACK format: Let's try without inter-element padding
+        // Maybe only values are padded, not entire elements
+        let total_element_size = bytes_before - bytes_after;
+        log::debug!("Total element size: {}, alignment: {} (no inter-element padding applied)", total_element_size, total_element_size % 4);
 
         Ok(Element {
             name,

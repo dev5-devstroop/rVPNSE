@@ -1,6 +1,6 @@
 use crate::error::VpnError;
 use crate::protocol::watermark::WatermarkClient;
-use crate::protocol::pack::Pack;
+use crate::protocol::pack::{Pack, Value};
 use reqwest::Client as HttpClient;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -157,6 +157,10 @@ impl AuthClient {
         log::debug!("Auth response data length: {}", response_data.len());
         log::debug!("Auth response data (first 100 bytes): {:?}", &response_data[..std::cmp::min(100, response_data.len())]);
         
+        // Check if response looks like HTTP text or binary
+        let response_text = String::from_utf8_lossy(&response_data[..std::cmp::min(200, response_data.len())]);
+        log::debug!("Auth response as text: {}", response_text);
+        
         // Parse response
         let response_pack = Pack::from_bytes(response_data.to_vec().into())?;
         
@@ -231,6 +235,45 @@ impl AuthClient {
         // TODO: Implement proper keepalive for SoftEther protocol
         log::debug!("Keepalive sent (placeholder)");
         Ok(())
+    }
+
+    /// Extract authentication error information from PACK response, even if parsing fails partially
+    fn extract_auth_info(pack_data: &[u8]) -> Option<String> {
+        // Try to parse PACK normally first
+        if let Ok(pack) = Pack::from_bytes(bytes::Bytes::copy_from_slice(pack_data)) {
+            if let Some(error_element) = pack.get_element("error") {
+                if let Some(Value::Data(data)) = error_element.values.first() {
+                    if let Ok(error_str) = String::from_utf8(data.clone()) {
+                        return Some(error_str.trim_end_matches('\0').to_string());
+                    }
+                }
+            }
+        }
+        
+        // If PACK parsing fails, try to extract string data manually
+        let data_str = String::from_utf8_lossy(pack_data);
+        if data_str.contains("no_save_password") {
+            return Some("Authentication policy: no_save_password - Server requires secure authentication".to_string());
+        }
+        
+        // Look for other common error strings
+        if data_str.contains("auth_error") {
+            return Some("Authentication error".to_string());
+        }
+        if data_str.contains("user_not_found") {
+            return Some("User not found".to_string());
+        }
+        if data_str.contains("password_incorrect") {
+            return Some("Incorrect password".to_string());
+        }
+        
+        None
+    }
+
+    /// Get the server endpoint for binary protocol connection
+    /// Used by StartTunnelingMode to establish binary VPN connection
+    pub fn get_server_endpoint(&self) -> Option<SocketAddr> {
+        self.server_address.parse().ok()
     }
 }
 

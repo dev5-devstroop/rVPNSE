@@ -26,7 +26,9 @@ async fn main() -> Result<()> {
 
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
-    let config_path = if args.len() > 1 {
+    let config_path = if args.len() > 2 && args[1] == "--config" {
+        &args[2]
+    } else if args.len() > 1 && !args[1].starts_with("--") {
         &args[1]
     } else {
         "config.toml"

@@ -7,11 +7,13 @@ pub mod auth;
 pub mod session;
 pub mod watermark;
 pub mod pack;
+pub mod binary;
 
 // Re-export main types
 pub use auth::AuthClient;
 pub use pack::{Pack, Element, Value, ElementType};
 pub use watermark::{WatermarkClient, WatermarkResponse, SOFTETHER_WATERMARK};
+pub use binary::BinaryProtocolClient;
 
 // Protocol constants
 pub mod constants {
