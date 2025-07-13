@@ -363,28 +363,6 @@ impl Pack {
             if i == 0 && data.len() >= 16 {
                 log::debug!("After first element: {} bytes remaining", data.len());
                 log::debug!("Next 16 bytes after first element: {:02x?}", &data[..16]);
-                
-                // Try skipping alignment bytes until we find a reasonable name length
-                let mut skipped_count = 0;
-                while data.len() >= 4 && skipped_count < 4 {
-                    // Peek at what the name length would be
-                    let potential_name_len = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
-                    
-                    if potential_name_len > 0 && potential_name_len < 100 {
-                        // This looks like a reasonable name length, stop skipping
-                        log::debug!("Found reasonable name length {} after skipping {} bytes", potential_name_len, skipped_count);
-                        break;
-                    }
-                    
-                    // Skip one byte and try again
-                    let skipped = data.get_u8();
-                    skipped_count += 1;
-                    log::debug!("Skipped alignment byte #{}: 0x{:02x}", skipped_count, skipped);
-                }
-                
-                if data.len() >= 16 {
-                    log::debug!("After skipping {} alignment bytes: {:02x?}", skipped_count, &data[..16]);
-                }
             }
         }
 
@@ -505,10 +483,18 @@ impl Pack {
         let bytes_after = data.len();
         log::debug!("Element '{}' parsing complete, total consumed: {} bytes", name, bytes_before - bytes_after);
 
-        // SoftEther PACK format: Let's try without inter-element padding
-        // Maybe only values are padded, not entire elements
+        // SoftEther PACK format: Apply inter-element padding to 4-byte boundary
         let total_element_size = bytes_before - bytes_after;
-        log::debug!("Total element size: {}, alignment: {} (no inter-element padding applied)", total_element_size, total_element_size % 4);
+        let padded_element_size = (total_element_size + 3) & !3; // Round up to 4-byte boundary
+        let inter_element_padding = padded_element_size - total_element_size;
+        
+        if inter_element_padding > 0 && data.len() >= inter_element_padding {
+            let padding_bytes = data.copy_to_bytes(inter_element_padding);
+            log::debug!("Applied {} inter-element padding bytes: {:?}, {} remaining", 
+                       inter_element_padding, padding_bytes, data.len());
+        }
+        
+        log::debug!("Total element size with padding: {}, consumed {} bytes", padded_element_size, bytes_before - data.len());
 
         Ok(Element {
             name,
