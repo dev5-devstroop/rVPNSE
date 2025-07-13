@@ -8,10 +8,12 @@
 
 use crate::error::{Result, VpnError};
 use crate::config::VpnConfig;
-use crate::protocol::binary::BinaryProtocolClient;
+// Note: Binary protocol removed - using HTTP Watermark + PACK instead
+// use crate::protocol::binary::BinaryProtocolClient;
 use crate::tunnel::real_tun::RealTunInterface;
 use bytes::Bytes;
 use std::sync::Arc;
+use std::net::SocketAddr;
 use tokio::sync::{RwLock, mpsc, Semaphore};
 use tokio::time::{Duration, Instant, interval};
 use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
@@ -240,7 +242,8 @@ pub struct OptimizedVpnClient {
     config: VpnConfig,
     perf_config: PerformanceConfig,
     stats: Arc<PerformanceStats>,
-    protocol_client: Option<BinaryProtocolClient>,
+    // Note: Binary protocol removed - using HTTP Watermark + PACK instead
+    // protocol_client: Option<BinaryProtocolClient>,
     tun_interface: Option<RealTunInterface>,
     
     // Async channels for packet processing
@@ -266,7 +269,6 @@ impl OptimizedVpnClient {
             config,
             perf_config,
             stats: Arc::new(PerformanceStats::new()),
-            protocol_client: None,
             tun_interface: None,
             outbound_tx: None,
             inbound_tx: None,
@@ -286,50 +288,13 @@ impl OptimizedVpnClient {
             .map_err(|_| VpnError::Connection("Connection limit reached".to_string()))?;
         
         // Connect using binary protocol
-        let server_addr = format!("{}:{}", self.config.server.hostname, self.config.server.port)
+        let server_addr: SocketAddr = format!("{}:{}", self.config.server.hostname, self.config.server.port)
             .parse()
             .map_err(|e| VpnError::Config(format!("Invalid server address: {}", e)))?;
         
-        let mut protocol_client = BinaryProtocolClient::new(server_addr);
-        protocol_client.connect().await?;
-        
-        // Authenticate
-        let session_id = protocol_client.authenticate(
-            self.config.auth.username.as_ref().unwrap(),
-            self.config.auth.password.as_ref().unwrap(),
-            &self.config.server.hub,
-        ).await?;
-        
-        // Establish session
-        protocol_client.establish_session().await?;
-        
-        // Setup TUN interface
-        let mut tun_interface = RealTunInterface::new("vpnse0".to_string());
-        tun_interface.create_interface(
-            "10.0.0.2".parse().unwrap(),
-            "10.0.0.1".parse().unwrap()
-        ).await?;
-        
-        self.protocol_client = Some(protocol_client);
-        self.tun_interface = Some(tun_interface);
-        
-        // Setup packet processing channels
-        let (outbound_tx, outbound_rx) = mpsc::channel(self.perf_config.send_buffer_size);
-        let (inbound_tx, inbound_rx) = mpsc::channel(self.perf_config.receive_buffer_size);
-        
-        self.outbound_tx = Some(outbound_tx);
-        self.inbound_tx = Some(inbound_tx);
-        
-        self.is_running.store(true, Ordering::Relaxed);
-        self.stats.is_monitoring.store(true, Ordering::Relaxed);
-        
-        // Start background tasks
-        self.start_packet_processors(outbound_rx, inbound_rx).await?;
-        self.start_performance_monitor().await?;
-        self.start_keepalive_task().await?;
-        
-        log::info!("VPN connected with session ID: {}", session_id);
-        Ok(())
+        // Note: Binary protocol removed - need to implement HTTP Watermark + PACK protocol
+        // TODO: Replace with proper SoftEther SSL-VPN implementation
+        return Err(VpnError::Network("Binary protocol no longer supported - use VpnClient instead".to_string()));
     }
 
     /// Start packet processing tasks
@@ -566,10 +531,8 @@ impl OptimizedVpnClient {
         self.outbound_tx = None;
         self.inbound_tx = None;
         
-        // Disconnect protocol client
-        if let Some(mut client) = self.protocol_client.take() {
-            client.disconnect().await?;
-        }
+        // Note: Binary protocol client removed
+        // Protocol client cleanup no longer needed
         
         // Close TUN interface
         if let Some(mut tun) = self.tun_interface.take() {
@@ -582,8 +545,8 @@ impl OptimizedVpnClient {
 
     /// Check if client is connected
     pub fn is_connected(&self) -> bool {
-        self.is_running.load(Ordering::Relaxed) && 
-        self.protocol_client.as_ref().map(|c| c.is_connected()).unwrap_or(false)
+        // Note: Binary protocol client removed, using is_running status only
+        self.is_running.load(Ordering::Relaxed)
     }
 }
 

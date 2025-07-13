@@ -5,7 +5,7 @@
 
 use crate::config::Config;
 use crate::error::{Result, VpnError};
-use crate::protocol::auth::AuthClient;
+use crate::protocol::{AuthClient, ProtocolHandler};
 use crate::protocol::session::SessionManager;
 use crate::tunnel::{TunnelConfig, TunnelManager};
 use std::collections::HashMap;
@@ -35,6 +35,7 @@ pub enum ConnectionStatus {
 pub struct VpnClient {
     config: Config,
     auth_client: Option<AuthClient>,
+    protocol_handler: Option<ProtocolHandler>,
     session_manager: Option<SessionManager>,
     tunnel_manager: Option<TunnelManager>,
     status: ConnectionStatus,
@@ -53,6 +54,7 @@ impl VpnClient {
         Ok(VpnClient {
             config,
             auth_client: None,
+            protocol_handler: None,
             session_manager: None,
             tunnel_manager: None,
             status: ConnectionStatus::Disconnected,
@@ -70,6 +72,7 @@ impl VpnClient {
         Ok(VpnClient {
             config,
             auth_client: None,
+            protocol_handler: None,
             session_manager: None,
             tunnel_manager: None,
             status: ConnectionStatus::Disconnected,
@@ -78,15 +81,15 @@ impl VpnClient {
         })
     }
 
-    /// Connect to `SoftEther` VPN server (protocol level only)
+    /// Connect to `SoftEther` VPN server using the correct SSL-VPN protocol
     ///
-    /// This establishes the SSL-VPN protocol connection but does NOT:
-    /// - Create TUN/TAP interfaces
-    /// - Configure routing tables
-    /// - Set up DNS
+    /// This establishes the proper SoftEther SSL-VPN connection:
+    /// 1. HTTP watermark handshake to establish session
+    /// 2. PACK binary protocol for data communication
     ///
-    /// Your application must handle platform networking separately.
-    pub fn connect(&mut self, server: &str, port: u16) -> Result<()> {
+    /// This does NOT handle platform networking (TUN/TAP, routing, DNS).
+    /// Your application must handle those separately.
+    pub async fn connect_async(&mut self, server: &str, port: u16) -> Result<()> {
         if self.status != ConnectionStatus::Disconnected {
             return Err(VpnError::Connection(
                 "Already connected or connecting".to_string(),
@@ -104,22 +107,20 @@ impl VpnClient {
 
         self.status = ConnectionStatus::Connecting;
 
-        // Resolve server address - handle both IP addresses and hostnames
+        // Resolve server address
         let server_addr = Self::resolve_server_address(server, port)?;
         self.server_endpoint = Some(server_addr);
 
-        // Attempt connection with retry logic
-        let result = self.attempt_connection(server_addr, &endpoint_key);
+        // Attempt connection with proper SoftEther protocol
+        let result = self.attempt_connection_async(server_addr, &endpoint_key).await;
 
         match result {
             Ok(_) => {
-                // Record successful connection
                 self.connection_tracker.record_connection();
                 self.status = ConnectionStatus::Connected;
                 Ok(())
             }
             Err(e) => {
-                // Record retry attempt for rate limiting
                 self.connection_tracker.record_retry(&endpoint_key);
                 self.status = ConnectionStatus::Disconnected;
                 Err(e)
@@ -127,22 +128,35 @@ impl VpnClient {
         }
     }
 
-    /// Attempt connection with timeout and error handling
-    fn attempt_connection(&mut self, server_addr: SocketAddr, endpoint_key: &str) -> Result<()> {
+    /// Attempt connection using SoftEther SSL-VPN protocol
+    async fn attempt_connection_async(&mut self, server_addr: SocketAddr, endpoint_key: &str) -> Result<()> {
         // Add delay if this is a retry attempt
         if self.config.connection_limits.retry_delay > 0 {
             let retry_attempts = self.connection_tracker.retry_attempts.lock().unwrap();
             if let Some((count, _)) = retry_attempts.get(endpoint_key) {
                 if *count > 0 {
-                    std::thread::sleep(Duration::from_secs(
+                    tokio::time::sleep(Duration::from_secs(
                         self.config.connection_limits.retry_delay as u64,
-                    ));
+                    )).await;
                 }
             }
         }
 
-        // Initialize auth client (this would establish TLS connection)
-        let auth_client = AuthClient::new(server_addr, &self.config)?;
+        // Initialize protocol handler
+        let mut protocol_handler = ProtocolHandler::new(server_addr, self.config.server.verify_certificate)?;
+        
+        // Step 1: HTTP watermark handshake
+        protocol_handler.establish_session().await?;
+        
+        // Initialize auth client
+        let auth_client = AuthClient::new(
+            server_addr.to_string(),
+            self.config.server.hub.clone(),
+            self.config.auth.username.clone().unwrap_or_default(),
+            self.config.auth.password.clone().unwrap_or_default(),
+        )?;
+        
+        self.protocol_handler = Some(protocol_handler);
         self.auth_client = Some(auth_client);
 
         Ok(())
@@ -187,6 +201,27 @@ impl VpnClient {
         Ok(())
     }
 
+    /// Authenticate with SoftEther VPN server using proper SSL-VPN protocol
+    ///
+    /// This uses the correct SoftEther authentication flow:
+    /// 1. HTTP watermark handshake (already done in connect)
+    /// 2. PACK binary authentication
+    pub async fn authenticate_async(&mut self, username: &str, password: &str) -> Result<()> {
+        let auth_client = self
+            .auth_client
+            .as_mut()
+            .ok_or_else(|| VpnError::Connection("Not connected".to_string()))?;
+
+        // Perform authentication using PACK binary protocol
+        auth_client.authenticate(username, password).await?;
+
+        // Initialize session manager after successful authentication
+        let session_manager = SessionManager::new(&self.config)?;
+        self.session_manager = Some(session_manager);
+
+        Ok(())
+    }
+
     /// Disconnect from VPN server
     ///
     /// # Errors
@@ -205,6 +240,7 @@ impl VpnClient {
 
         self.tunnel_manager = None;
         self.session_manager = None;
+        self.protocol_handler = None;
         self.auth_client = None;
         self.status = ConnectionStatus::Disconnected;
         self.server_endpoint = None;
@@ -244,6 +280,42 @@ impl VpnClient {
         if let Some(ref mut session_manager) = self.session_manager {
             session_manager.send_keepalive()?;
         }
+
+        Ok(())
+    }
+
+    /// Send packet data using PACK binary format
+    pub async fn send_packet_data(&mut self, packet_data: &[u8]) -> Result<()> {
+        let protocol_handler = self
+            .protocol_handler
+            .as_ref()
+            .ok_or_else(|| VpnError::Connection("Protocol handler not initialized".to_string()))?;
+
+        if !protocol_handler.has_session() {
+            return Err(VpnError::Connection("Session not established".to_string()));
+        }
+
+        // Create data PACK and send via HTTPS
+        let data_pack = protocol_handler.create_data_pack(packet_data);
+        let _response = protocol_handler.send_pack(&data_pack).await?;
+
+        Ok(())
+    }
+
+    /// Send keepalive using PACK binary format
+    pub async fn send_keepalive_pack(&mut self) -> Result<()> {
+        let protocol_handler = self
+            .protocol_handler
+            .as_ref()
+            .ok_or_else(|| VpnError::Connection("Protocol handler not initialized".to_string()))?;
+
+        if !protocol_handler.has_session() {
+            return Err(VpnError::Connection("Session not established".to_string()));
+        }
+
+        // Create and send keepalive PACK
+        let keepalive_pack = protocol_handler.create_keepalive_pack();
+        let _response = protocol_handler.send_pack(&keepalive_pack).await?;
 
         Ok(())
     }
@@ -332,6 +404,13 @@ impl VpnClient {
     /// Get authentication client (for accessing session details)
     pub fn auth_client(&self) -> Option<&AuthClient> {
         self.auth_client.as_ref()
+    }
+
+    /// Synchronous connect method for FFI compatibility
+    pub fn connect(&mut self, server: &str, port: u16) -> Result<()> {
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| VpnError::Connection(format!("Failed to create runtime: {}", e)))?;
+        rt.block_on(self.connect_async(server, port))
     }
 }
 

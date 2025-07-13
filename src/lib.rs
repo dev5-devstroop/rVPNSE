@@ -36,7 +36,6 @@ pub use client::{ConnectionStatus, VpnClient};
 pub use client_optimized::{OptimizedVpnClient, PerformanceConfig, PerformanceSnapshot};
 pub use config::Config;
 pub use error::{Result, VpnError};
-pub use protocol::packets::{Packet, PacketBuilder, PacketType};
 
 /// Library version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

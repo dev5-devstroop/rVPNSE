@@ -48,6 +48,9 @@ public-ip = "0.2"
 # UUID generation for sessions
 uuid = { version = "1.0", features = ["v4"] }
 
+# Fast random number generation
+fastrand = "2.0"
+
 # Lazy static for global state
 lazy_static = "1.4"
 

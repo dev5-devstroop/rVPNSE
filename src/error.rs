@@ -9,6 +9,10 @@ pub enum VpnError {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    /// Configuration validation errors
+    #[error("Configuration validation error: {0}")]
+    Configuration(String),
+
     /// Network connectivity errors
     #[error("Network error: {0}")]
     Network(String),

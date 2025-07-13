@@ -222,7 +222,7 @@ impl RealTunInterface {
         
         #[cfg(target_os = "linux")]
         {
-            self.linux_handle = Some(linux_tun::create_tun_interface(&self.interface_name, local_ip, remote_ip).await?);
+            self.linux_handle = Some(linux_tun::create_tun_interface(&self.interface_name, &local_ip.to_string(), &remote_ip.to_string()).await?);
         }
         
         // Initialize packet processor

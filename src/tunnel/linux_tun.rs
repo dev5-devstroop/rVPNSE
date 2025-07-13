@@ -329,6 +329,23 @@ impl LinuxTunInterface {
         }
         .pipe(Ok)
     }
+
+    /// Cleanup interface
+    pub fn cleanup(&mut self) -> Result<()> {
+        if self.is_connected {
+            log::info!("Cleaning up TUN interface: {}", self.interface_name);
+            
+            // Remove interface - it's usually cleaned up automatically when the fd is closed
+            // Just close the file descriptor
+            unsafe {
+                libc::close(self.fd);
+            }
+            
+            self.is_connected = false;
+            log::info!("TUN interface cleaned up successfully");
+        }
+        Ok(())
+    }
 }
 
 impl AsRawFd for LinuxTunInterface {
@@ -407,7 +424,7 @@ pub mod linux_utils {
     
     /// Load TUN module if not available
     pub fn load_tun_module() -> Result<()> {
-        if Self::is_tun_available() {
+        if is_tun_available() {
             return Ok(());
         }
         
@@ -423,7 +440,7 @@ pub mod linux_utils {
             return Err(VpnError::TunTap(format!("Failed to load TUN module: {}", error_msg)));
         }
         
-        if !Self::is_tun_available() {
+        if !is_tun_available() {
             return Err(VpnError::TunTap("TUN module loaded but /dev/net/tun not available".to_string()));
         }
         
@@ -570,4 +587,19 @@ mod tests {
         assert_eq!(LinuxTunInterface::netmask_to_cidr("255.255.0.0").unwrap(), 16);
         assert_eq!(LinuxTunInterface::netmask_to_cidr("255.0.0.0").unwrap(), 8);
     }
+}
+
+/// Handle to a Linux TUN interface for management
+pub type LinuxTunHandle = LinuxTunInterface;
+
+/// Create and configure a TUN interface asynchronously
+pub async fn create_tun_interface(interface_name: &str, local_ip: &str, remote_ip: &str) -> Result<LinuxTunHandle> {
+    let mut interface = LinuxTunInterface::new(Some(interface_name.to_string()), true)?;
+    interface.configure(local_ip, remote_ip, "255.255.255.0")?;
+    Ok(interface)
+}
+
+/// Destroy a TUN interface asynchronously  
+pub async fn destroy_tun_interface(mut interface: LinuxTunHandle) -> Result<()> {
+    interface.cleanup()
 }
