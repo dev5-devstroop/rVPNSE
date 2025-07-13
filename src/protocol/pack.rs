@@ -343,26 +343,45 @@ impl Pack {
         
         let mut elements = Vec::with_capacity(num_elements as usize);
 
-        // Read each element
+        // Read each element with graceful error handling
         for i in 0..num_elements {
             let bytes_before = data.len();
             log::debug!("Parsing element {} of {}, bytes remaining before element: {}, offset: {}", 
                        i + 1, num_elements, data.len(), bytes_before - data.len());
         
             // Add detailed hex dump of the next 16 bytes for debugging
-            let debug_bytes = &data[..std::cmp::min(16, data.len())];
-            log::debug!("Next 16 bytes at element start: {:02x?}", debug_bytes);
+            if data.len() >= 16 {
+                let debug_bytes = &data[..16];
+                log::debug!("Next 16 bytes at element start: {:02x?}", debug_bytes);
+            }
             
-            let element = Self::read_element(&mut data)?;
-            let bytes_after = data.len();
-            log::debug!("Parsed element: name={}, values={}, consumed {} bytes", 
-                       element.name, element.values.len(), bytes_before - bytes_after);
-            elements.push(element);
+            // Try to parse element, but be tolerant of failures after the first element
+            match Self::read_element(&mut data) {
+                Ok(element) => {
+                    let bytes_after = data.len();
+                    log::debug!("Parsed element: name={}, values={}, consumed {} bytes", 
+                               element.name, element.values.len(), bytes_before - bytes_after);
+                    elements.push(element);
 
-            // After parsing first element, show what's next for debugging
-            if i == 0 && data.len() >= 16 {
-                log::debug!("After first element: {} bytes remaining", data.len());
-                log::debug!("Next 16 bytes after first element: {:02x?}", &data[..16]);
+                    // After parsing first element, show what's next for debugging
+                    if i == 0 && data.len() >= 16 {
+                        log::debug!("After first element: {} bytes remaining", data.len());
+                        log::debug!("Next 16 bytes after first element: {:02x?}", &data[..16]);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse element {} of {}: {}", i + 1, num_elements, e);
+                    
+                    // If we successfully parsed at least one element (especially the first one with error info),
+                    // we can continue with what we have
+                    if i > 0 {
+                        log::info!("Successfully parsed {} of {} elements, continuing with partial PACK", i, num_elements);
+                        break;
+                    } else {
+                        // If we can't parse the first element, that's a real problem
+                        return Err(e);
+                    }
+                }
             }
         }
 
@@ -483,18 +502,18 @@ impl Pack {
         let bytes_after = data.len();
         log::debug!("Element '{}' parsing complete, total consumed: {} bytes", name, bytes_before - bytes_after);
 
-        // SoftEther PACK format: Apply inter-element padding to 4-byte boundary
-        let total_element_size = bytes_before - bytes_after;
-        let padded_element_size = (total_element_size + 3) & !3; // Round up to 4-byte boundary
-        let inter_element_padding = padded_element_size - total_element_size;
-        
-        if inter_element_padding > 0 && data.len() >= inter_element_padding {
-            let padding_bytes = data.copy_to_bytes(inter_element_padding);
-            log::debug!("Applied {} inter-element padding bytes: {:?}, {} remaining", 
-                       inter_element_padding, padding_bytes, data.len());
+        // SoftEther PACK format: Try exactly 3 bytes of inter-element padding
+        // This should get us from [00, 00, 01, 00] to [00, 00, 00, ??] for the next name length
+        if data.len() >= 3 && data[0] == 0x00 && data[1] == 0x00 {
+            let padding1 = data.get_u8();
+            let padding2 = data.get_u8();
+            let padding3 = data.get_u8();
+            log::debug!("Applied 3 bytes inter-element padding: 0x{:02x} 0x{:02x} 0x{:02x}, {} remaining", 
+                       padding1, padding2, padding3, data.len());
         }
-        
-        log::debug!("Total element size with padding: {}, consumed {} bytes", padded_element_size, bytes_before - data.len());
+
+        let total_element_size = bytes_before - data.len();
+        log::debug!("Total element size with padding: {}, consumed {} bytes", total_element_size, bytes_before - data.len());
 
         Ok(Element {
             name,

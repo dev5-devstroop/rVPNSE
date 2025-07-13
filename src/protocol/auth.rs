@@ -161,19 +161,61 @@ impl AuthClient {
         let response_text = String::from_utf8_lossy(&response_data[..std::cmp::min(200, response_data.len())]);
         log::debug!("Auth response as text: {}", response_text);
         
-        // Parse response
-        let response_pack = Pack::from_bytes(response_data.to_vec().into())?;
-        
-        // Check authentication result
-        if let Some(success) = response_pack.get_int("auth_success") {
-            if success == 1 {
-                log::info!("Authentication successful");
-                Ok(())
-            } else {
-                Err(VpnError::Authentication("Hub authentication failed".to_string()))
+        // Parse response with improved error handling
+        match Pack::from_bytes(response_data.to_vec().into()) {
+            Ok(response_pack) => {
+                log::debug!("Successfully parsed PACK response with {} elements", response_pack.elements.len());
+                
+                // Check for error element (which we know we can parse successfully)
+                if let Some(error_element) = response_pack.get_element("error") {
+                    log::debug!("Found error element with {} values", error_element.values.len());
+                    
+                    // Extract error details from the values
+                    if let Some(Value::Data(error_data)) = error_element.values.get(0) {
+                        let error_msg = String::from_utf8_lossy(error_data);
+                        log::info!("Server error message: {}", error_msg);
+                        
+                        // Check specific error types
+                        if error_msg.contains("no_save_password") {
+                            return Err(VpnError::Authentication("Authentication failed: Invalid credentials or hub not found".to_string()));
+                        } else if error_msg.contains("access_denied") {
+                            return Err(VpnError::Authentication("Access denied to hub".to_string()));
+                        } else {
+                            return Err(VpnError::Authentication(format!("Server error: {}", error_msg)));
+                        }
+                    }
+                }
+                
+                // Check authentication result
+                if let Some(success) = response_pack.get_int("auth_success") {
+                    if success == 1 {
+                        log::info!("Authentication successful");
+                        Ok(())
+                    } else {
+                        Err(VpnError::Authentication("Hub authentication failed".to_string()))
+                    }
+                } else {
+                    // If no explicit auth_success field, but no error element, assume we need more info
+                    log::warn!("No clear authentication result in response");
+                    Err(VpnError::Authentication("Unclear authentication result from server".to_string()))
+                }
             }
-        } else {
-            Err(VpnError::Authentication("Invalid authentication response from server".to_string()))
+            Err(pack_error) => {
+                log::warn!("PACK parsing failed: {}, trying to extract partial information", pack_error);
+                
+                // If PACK parsing fails completely, try to interpret as plain text or give more info
+                let response_text = String::from_utf8_lossy(&response_data);
+                if response_text.contains("error") || response_text.len() < 1000 {
+                    log::debug!("Server response as text: {}", response_text);
+                    
+                    // Try to extract error information from text
+                    if response_text.contains("no_save_password") {
+                        return Err(VpnError::Authentication("Authentication failed: Invalid credentials".to_string()));
+                    }
+                }
+                
+                Err(VpnError::Protocol(format!("Failed to parse authentication response: {}", pack_error)))
+            }
         }
     }
 
