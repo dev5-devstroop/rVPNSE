@@ -60,8 +60,8 @@ impl Value {
     /// Serialize value to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         match self {
-            Value::Int(i) => i.to_le_bytes().to_vec(),
-            Value::Int64(i) => i.to_le_bytes().to_vec(),
+            Value::Int(i) => i.to_be_bytes().to_vec(), // SoftEther uses big-endian
+            Value::Int64(i) => i.to_be_bytes().to_vec(), // SoftEther uses big-endian
             Value::Data(data) => data.clone(),
             Value::Str(s) => s.as_bytes().to_vec(),
             Value::UniStr(s) => {
@@ -84,14 +84,16 @@ impl Value {
                     return Err(VpnError::Protocol("Invalid Int data length".to_string()));
                 }
                 let bytes: [u8; 4] = data.try_into().unwrap();
-                Ok(Value::Int(u32::from_le_bytes(bytes)))
+                // SoftEther uses big-endian for integers
+                Ok(Value::Int(u32::from_be_bytes(bytes)))
             }
             ElementType::Int64 => {
                 if data.len() != 8 {
                     return Err(VpnError::Protocol("Invalid Int64 data length".to_string()));
                 }
                 let bytes: [u8; 8] = data.try_into().unwrap();
-                Ok(Value::Int64(u64::from_le_bytes(bytes)))
+                // SoftEther uses big-endian for integers
+                Ok(Value::Int64(u64::from_be_bytes(bytes)))
             }
             ElementType::Data => Ok(Value::Data(data.to_vec())),
             ElementType::Str => {
@@ -105,6 +107,7 @@ impl Value {
                 }
                 let mut utf16_codes = Vec::with_capacity(data.len() / 2);
                 for chunk in data.chunks_exact(2) {
+                    // SoftEther uses little-endian for UTF-16 characters
                     let code = u16::from_le_bytes([chunk[0], chunk[1]]);
                     utf16_codes.push(code);
                 }
@@ -271,8 +274,8 @@ impl Pack {
     pub fn to_bytes(&self) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
-        // Write number of elements (4 bytes, little-endian)
-        buf.put_u32_le(self.elements.len() as u32);
+        // Write number of elements (4 bytes, big-endian - SoftEther format)
+        buf.put_u32(self.elements.len() as u32);
 
         // Write each element
         for element in &self.elements {
@@ -286,22 +289,22 @@ impl Pack {
     fn write_element(&self, buf: &mut BytesMut, element: &Element) -> Result<()> {
         let element_type = element.element_type()?;
 
-        // Write element name length and name (with null terminator)
+        // Write element name length and name (with null terminator, big-endian)
         let name_bytes = element.name.as_bytes();
-        buf.put_u32_le(name_bytes.len() as u32 + 1); // +1 for null terminator
+        buf.put_u32(name_bytes.len() as u32 + 1); // +1 for null terminator
         buf.put_slice(name_bytes);
         buf.put_u8(0); // null terminator
 
-        // Write element type
-        buf.put_u32_le(element_type as u32);
+        // Write element type (big-endian)
+        buf.put_u32(element_type as u32);
 
-        // Write number of values
-        buf.put_u32_le(element.values.len() as u32);
+        // Write number of values (big-endian)
+        buf.put_u32(element.values.len() as u32);
 
         // Write each value
         for value in &element.values {
             let value_bytes = value.to_bytes();
-            buf.put_u32_le(value_bytes.len() as u32);
+            buf.put_u32(value_bytes.len() as u32); // value length (big-endian)
             buf.put_slice(&value_bytes);
         }
 
@@ -310,66 +313,130 @@ impl Pack {
 
     /// Deserialize PACK from binary format
     pub fn from_bytes(mut data: Bytes) -> Result<Self> {
+        log::debug!("Parsing PACK from {} bytes", data.len());
+        log::debug!("Raw bytes (first 32): {:?}", &data[..std::cmp::min(32, data.len())]);
+        
+        let original_len = data.len();
+        
         if data.len() < 4 {
             return Err(VpnError::Protocol("PACK data too short".to_string()));
         }
 
-        // Read number of elements
-        let num_elements = data.get_u32_le();
+        // Read number of elements (SoftEther uses big-endian)
+        let num_elements = data.get_u32();
+        log::debug!("PACK contains {} elements (big-endian), consumed 4 bytes, {} remaining", num_elements, data.len());
+        
+        // Sanity check: element count shouldn't be too large
+        if num_elements > 10000 {
+            return Err(VpnError::Protocol(format!("Element count {} seems too large", num_elements)));
+        }
+        
         let mut elements = Vec::with_capacity(num_elements as usize);
 
         // Read each element
-        for _ in 0..num_elements {
+        for i in 0..num_elements {
+            let bytes_before = data.len();
+            log::debug!("Parsing element {} of {}, bytes remaining before element: {}, offset: {}", 
+                       i + 1, num_elements, bytes_before, original_len - bytes_before);
             let element = Self::read_element(&mut data)?;
+            let bytes_after = data.len();
+            log::debug!("Parsed element: name={}, values={}, consumed {} bytes", 
+                       element.name, element.values.len(), bytes_before - bytes_after);
             elements.push(element);
         }
 
+        log::debug!("Successfully parsed PACK with {} elements", elements.len());
         Ok(Self { elements })
     }
 
     /// Read a single element from the buffer
     fn read_element(data: &mut Bytes) -> Result<Element> {
+        let bytes_before = data.len();
+        let original_len = bytes_before; // For offset calculation
+        
         if data.len() < 4 {
             return Err(VpnError::Protocol("Not enough data for element name length".to_string()));
         }
 
-        // Read element name length
-        let name_len = data.get_u32_le() as usize;
+        // Read element name length (big-endian, includes null terminator)
+        let name_len = data.get_u32() as usize;
+        log::debug!("Element name length: {} (includes null terminator), consumed 4 bytes, {} remaining", name_len, data.len());
+        
+        if name_len == 0 {
+            return Err(VpnError::Protocol("Element name length is zero".to_string()));
+        }
+        
         if data.len() < name_len {
             return Err(VpnError::Protocol("Not enough data for element name".to_string()));
         }
 
-        // Read element name (excluding null terminator)
+        // Read element name (SoftEther format: length includes +1 for null, but data doesn't include null)
         let name_bytes = data.copy_to_bytes(name_len);
-        let name = String::from_utf8(name_bytes[..name_len.saturating_sub(1)].to_vec())
+        // SoftEther string format: length includes +1 for null terminator, but actual data is just the string
+        let actual_name_len = name_len.saturating_sub(1);
+        let name = String::from_utf8(name_bytes[..actual_name_len].to_vec())
             .map_err(|_| VpnError::Protocol("Invalid element name UTF-8".to_string()))?;
+        log::debug!("Element name: '{}', consumed {} bytes, {} remaining", name, name_len, data.len());
+        
+        // SoftEther PACK format: element names are padded to 4-byte boundary after the name length field
+        // Total consumed = name_len_field (4) + name_len + padding
+        let total_name_field_len = 4 + name_len; // 4 bytes for length + actual name bytes  
+        let padded_len = (total_name_field_len + 3) & !3; // Round up to 4-byte boundary
+        let padding_needed = padded_len - total_name_field_len;
+        
+        if padding_needed > 0 && data.len() >= padding_needed {
+            let padding = data.copy_to_bytes(padding_needed);
+            log::debug!("Skipped {} alignment padding bytes after name: {:?}", padding_needed, padding);
+        }
+        
+        log::debug!("After name + padding, next 12 bytes: {:?}", &data[..std::cmp::min(12, data.len())]);
 
         if data.len() < 8 {
             return Err(VpnError::Protocol("Not enough data for element type and value count".to_string()));
         }
 
-        // Read element type
-        let element_type = ElementType::try_from(data.get_u32_le())?;
+        // Read element type (big-endian)
+        log::debug!("About to read element type, next 12 bytes: {:?}", 
+                   &data[..std::cmp::min(12, data.len())]);
+        let element_type_raw = data.get_u32();
+        log::debug!("Element type raw: {}, consumed 4 bytes, {} remaining", element_type_raw, data.len());
+        let element_type = ElementType::try_from(element_type_raw)?;
+        log::debug!("Element type: {:?}", element_type);
 
-        // Read number of values
-        let num_values = data.get_u32_le() as usize;
+        // Read number of values (big-endian)
+        log::debug!("About to read num values, next 8 bytes: {:?}", 
+                   &data[..std::cmp::min(8, data.len())]);
+        let num_values_raw = data.get_u32();
+        log::debug!("Number of values raw: {}, consumed 4 bytes, {} remaining", num_values_raw, data.len());
+        let num_values = num_values_raw as usize;
+        log::debug!("Number of values: {}", num_values);
+        
         let mut values = Vec::with_capacity(num_values);
 
         // Read each value
-        for _ in 0..num_values {
+        for j in 0..num_values {
             if data.len() < 4 {
                 return Err(VpnError::Protocol("Not enough data for value length".to_string()));
             }
 
-            let value_len = data.get_u32_le() as usize;
+            let value_len_raw = data.get_u32();
+            log::debug!("Value {} length raw: {}, consumed 4 bytes, {} remaining", j, value_len_raw, data.len());
+            let value_len = value_len_raw as usize;
+            log::debug!("Value {} length: {}", j, value_len);
+            
             if data.len() < value_len {
                 return Err(VpnError::Protocol("Not enough data for value".to_string()));
             }
 
             let value_bytes = data.copy_to_bytes(value_len);
+            log::debug!("Value {} bytes: {:?}", j, &value_bytes[..std::cmp::min(8, value_bytes.len())]);
             let value = Value::from_bytes(element_type, &value_bytes)?;
+            log::debug!("Value {}: {:?}, consumed {} bytes, {} remaining", j, value, value_len, data.len());
             values.push(value);
         }
+
+        let bytes_after = data.len();
+        log::debug!("Element '{}' parsing complete, total consumed: {} bytes", name, bytes_before - bytes_after);
 
         Ok(Element {
             name,

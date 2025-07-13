@@ -54,30 +54,44 @@ impl WatermarkClient {
 
     /// Send HTTP watermark handshake to establish VPN session
     ///
-    /// This sends the SoftEther watermark (GIF89a binary data) via HTTP POST
-    /// to /vpnsvc/connect.cgi to validate the VPN client and establish session.
+    /// This sends either "VPNCONNECT" or the SoftEther watermark (GIF89a binary data) 
+    /// via HTTP POST to /vpnsvc/connect.cgi to validate the VPN client and establish session.
     pub async fn send_watermark_handshake(&self) -> Result<WatermarkResponse> {
         let url = format!("{}/vpnsvc/connect.cgi", self.base_url);
         
-        // Create watermark with random padding (as SoftEther does)
-        let rand_size = fastrand::u32(0..1024); // Random padding size
-        let total_size = SOFTETHER_WATERMARK.len() + rand_size as usize;
-        let mut watermark_data = vec![0u8; total_size];
-        
-        // Copy watermark
-        watermark_data[..SOFTETHER_WATERMARK.len()].copy_from_slice(SOFTETHER_WATERMARK);
-        
-        // Add random padding
-        for i in SOFTETHER_WATERMARK.len()..total_size {
-            watermark_data[i] = fastrand::u8(..);
-        }
-
-        // Send HTTP POST with watermark
+        // First try with "VPNCONNECT" - this is simpler and more commonly used
         let response = self.http_client
             .post(&url)
-            .header("Content-Type", "application/octet-stream")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Content-Length", "10")
             .header("Connection", "Keep-Alive")
-            .header("Keep-Alive", "timeout=15, max=100")
+            .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)")
+            .body("VPNCONNECT")
+            .send()
+            .await
+            .map_err(|e| VpnError::Network(format!("Watermark handshake failed: {}", e)))?;
+
+        if response.status().is_success() {
+            // Read response body
+            let response_body = response.bytes().await.map_err(|e| {
+                VpnError::Network(format!("Failed to read watermark response: {}", e))
+            })?;
+
+            return Ok(WatermarkResponse {
+                session_established: true,
+                response_data: response_body.to_vec(),
+            });
+        }
+
+        // If VPNCONNECT fails, try with the GIF watermark
+        let watermark_data = SOFTETHER_WATERMARK.to_vec();
+
+        let response = self.http_client
+            .post(&url)
+            .header("Content-Type", "image/gif")
+            .header("Content-Length", &watermark_data.len().to_string())
+            .header("Connection", "Keep-Alive")
+            .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)")
             .body(watermark_data)
             .send()
             .await

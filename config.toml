@@ -1,0 +1,33 @@
+[server]
+hostname = "worxvpn.662.cloud"
+port = 443
+hub = "VPN"
+verify_certificate = false
+
+[auth]
+username = "devstroop"
+password = "devstroop111222"
+# Optional certificate-based authentication
+# client_cert = "path/to/client.crt"
+# client_key = "path/to/client.key"
+
+[tunnel]
+# TUN/TAP interface name (optional, auto-generated if not specified)
+# interface_name = "vpn0"
+# MTU size (optional, default 1500)
+mtu = 1500
+# IPv4 address for the tunnel interface (optional, assigned by server if not specified)
+# ipv4_address = "192.168.1.100"
+# IPv4 netmask (optional, default 255.255.255.0)
+# ipv4_netmask = "255.255.255.0"
+
+[network]
+enable_ipv6 = false
+enable_http2 = true
+tcp_keepalive = true
+tcp_nodelay = true
+
+[logging]
+level = "info"
+# Optional file logging
+# file = "rvpnse.log"

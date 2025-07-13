@@ -50,13 +50,10 @@ impl AuthClient {
         log::info!("Starting HTTP Watermark handshake");
         let _watermark_response = self.watermark_client.send_watermark_handshake().await?;
         
-        // Step 2: Establish session
-        let session_id = self.establish_session(stream).await?;
+        // Step 2: Authenticate directly (no session establishment needed)
+        self.perform_hub_authentication(stream).await?;
         
-        // Step 3: Authenticate with hub
-        self.perform_hub_authentication(stream, &session_id).await?;
-        
-        Ok(session_id)
+        Ok("authenticated".to_string())
     }
 
     /// Establish a session with the server
@@ -68,62 +65,100 @@ impl AuthClient {
         pack.add_str("method", "admin");
         pack.add_str("hub", &self.hub_name);
         
-        // Send the packet
+        // Send via HTTP POST to the same connect.cgi endpoint
+        let url = format!("https://{}:{}/vpnsvc/connect.cgi", stream.peer_addr().unwrap().ip(), 443);
+        
         let data = pack.to_bytes()?;
-        stream.write_u32(data.len() as u32).await
-            .map_err(|e| VpnError::Network(format!("Failed to write packet length: {}", e)))?;
-        stream.write_all(&data).await
-            .map_err(|e| VpnError::Network(format!("Failed to write packet data: {}", e)))?;
+        let response = self.watermark_client.http_client
+            .post(&url)
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", &data.len().to_string())
+            .header("Connection", "Keep-Alive")
+            .body(data)
+            .send()
+            .await
+            .map_err(|e| VpnError::Network(format!("Failed to send session request: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(VpnError::Protocol(format!(
+                "Session establishment failed: HTTP {}",
+                response.status()
+            )));
+        }
+
+        let response_data = response.bytes().await
+            .map_err(|e| VpnError::Network(format!("Failed to read session response: {}", e)))?;
         
-        // Read response
-        let response_len = stream.read_u32().await
-            .map_err(|e| VpnError::Network(format!("Failed to read response length: {}", e)))?;
+        log::debug!("Session response data length: {}", response_data.len());
+        log::debug!("Session response data (first 100 bytes): {:?}", &response_data[..std::cmp::min(100, response_data.len())]);
         
-        let mut response_data = vec![0u8; response_len as usize];
-        stream.read_exact(&mut response_data).await
-            .map_err(|e| VpnError::Network(format!("Failed to read response data: {}", e)))?;
-        
-        // Parse response
-        let response_pack = Pack::from_bytes(response_data.into())?;
-        
-        // Extract session ID
-        if let Some(session_id) = response_pack.get_str("session_id") {
-            log::info!("Session established with ID: {}", session_id);
-            Ok(session_id.clone())
-        } else {
-            Err(VpnError::Authentication("Failed to get session ID from server".to_string()))
+        // Try to parse response, but handle errors gracefully
+        match Pack::from_bytes(response_data.to_vec().into()) {
+            Ok(response_pack) => {
+                // Check for error in the response
+                if let Some(error_msg) = response_pack.get_str("error") {
+                    return Err(VpnError::Authentication(format!("Server error: {}", error_msg)));
+                }
+                
+                // Extract session ID
+                if let Some(session_id) = response_pack.get_str("session_id") {
+                    log::info!("Session established with ID: {}", session_id);
+                    Ok(session_id.clone())
+                } else {
+                    Err(VpnError::Authentication("Failed to get session ID from server".to_string()))
+                }
+            }
+            Err(pack_error) => {
+                // If PACK parsing fails, try to interpret as plain text or give more info
+                let response_text = String::from_utf8_lossy(&response_data);
+                if response_text.contains("error") || response_text.len() < 1000 {
+                    log::debug!("Server response as text: {}", response_text);
+                }
+                Err(VpnError::Protocol(format!("Failed to parse session response: {}", pack_error)))
+            }
         }
     }
 
     /// Perform hub authentication
-    async fn perform_hub_authentication(&self, stream: &mut TcpStream, session_id: &str) -> Result<(), VpnError> {
+    async fn perform_hub_authentication(&self, stream: &mut TcpStream) -> Result<(), VpnError> {
         log::info!("Authenticating with hub: {}", self.hub_name);
         
         // Create authentication packet
         let mut pack = Pack::new();
         pack.add_str("method", "login");
-        pack.add_str("session_id", session_id);
         pack.add_str("username", &self.username);
         pack.add_str("password", &self.password);
         pack.add_str("hub", &self.hub_name);
         
-        // Send the packet
+        // Send via HTTP POST to the same connect.cgi endpoint  
+        let url = format!("https://{}:{}/vpnsvc/connect.cgi", stream.peer_addr().unwrap().ip(), 443);
+        
         let data = pack.to_bytes()?;
-        stream.write_u32(data.len() as u32).await
-            .map_err(|e| VpnError::Network(format!("Failed to write auth packet length: {}", e)))?;
-        stream.write_all(&data).await
-            .map_err(|e| VpnError::Network(format!("Failed to write auth packet data: {}", e)))?;
+        let response = self.watermark_client.http_client
+            .post(&url)
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", &data.len().to_string())
+            .header("Connection", "Keep-Alive")
+            .body(data)
+            .send()
+            .await
+            .map_err(|e| VpnError::Network(format!("Failed to send auth request: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(VpnError::Protocol(format!(
+                "Hub authentication failed: HTTP {}",
+                response.status()
+            )));
+        }
+
+        let response_data = response.bytes().await
+            .map_err(|e| VpnError::Network(format!("Failed to read auth response: {}", e)))?;
         
-        // Read response
-        let response_len = stream.read_u32().await
-            .map_err(|e| VpnError::Network(format!("Failed to read auth response length: {}", e)))?;
-        
-        let mut response_data = vec![0u8; response_len as usize];
-        stream.read_exact(&mut response_data).await
-            .map_err(|e| VpnError::Network(format!("Failed to read auth response data: {}", e)))?;
+        log::debug!("Auth response data length: {}", response_data.len());
+        log::debug!("Auth response data (first 100 bytes): {:?}", &response_data[..std::cmp::min(100, response_data.len())]);
         
         // Parse response
-        let response_pack = Pack::from_bytes(response_data.into())?;
+        let response_pack = Pack::from_bytes(response_data.to_vec().into())?;
         
         // Check authentication result
         if let Some(success) = response_pack.get_int("auth_success") {
