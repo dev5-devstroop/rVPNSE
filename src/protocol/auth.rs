@@ -21,6 +21,7 @@ pub struct AuthClient {
     stream: Option<TcpStream>,
     session_id: Option<String>,
     is_authenticated: bool,
+    pack_data: Option<Pack>,  // Store the authentication response PACK data
 }
 
 impl AuthClient {
@@ -50,6 +51,7 @@ impl AuthClient {
             stream: None,
             session_id: None,
             is_authenticated: false,
+            pack_data: None,
         })
     }
 
@@ -128,6 +130,23 @@ impl AuthClient {
                     // If we have pencore but only no_save_password error, this might be success
                     if has_pencore && has_no_save_password && data_values.len() <= 3 {
                         log::info!("Authentication appears successful with pencore session identifier");
+                        
+                        // Analyze binary session data for IP configuration
+                        if let Some(binary_data) = response_pack.get_binary_session_data() {
+                            log::info!("🔍 Analyzing {} bytes of binary session data for IP configuration", binary_data.len());
+                            if let Some(ip_config) = response_pack.analyze_for_ip_addresses() {
+                                log::info!("🎯 Found IP configuration in binary session data:");
+                                log::info!("   Local IP: {} (source: {})", ip_config.local_ip, ip_config.source);
+                                log::info!("   Gateway: {}", ip_config.gateway_ip);
+                                log::info!("   Netmask: {}", ip_config.netmask);
+                            } else {
+                                log::warn!("❌ No IP configuration found in binary session data");
+                                log::debug!("Binary data hex: {}", hex::encode(&binary_data));
+                            }
+                        } else {
+                            log::warn!("❌ No binary session data available for IP analysis");
+                        }
+                        
                         return Ok("pencore_session".to_string());
                     } else if !has_pencore && has_no_save_password {
                         // Only no_save_password, continue to look for other indicators
@@ -150,6 +169,23 @@ impl AuthClient {
                 } else if let Some(pencore) = response_pack.get_str("pencore") {
                     // SoftEther may use "pencore" field for session info
                     log::info!("Session established with pencore: {}", pencore);
+                    
+                    // Analyze binary session data for IP configuration
+                    if let Some(binary_data) = response_pack.get_binary_session_data() {
+                        log::info!("🔍 Analyzing {} bytes of binary session data for IP configuration", binary_data.len());
+                        if let Some(ip_config) = response_pack.analyze_for_ip_addresses() {
+                            log::info!("🎯 Found IP configuration in binary session data:");
+                            log::info!("   Local IP: {} (source: {})", ip_config.local_ip, ip_config.source);
+                            log::info!("   Gateway: {}", ip_config.gateway_ip);
+                            log::info!("   Netmask: {}", ip_config.netmask);
+                        } else {
+                            log::warn!("❌ No IP configuration found in binary session data");
+                            log::debug!("Binary data hex: {}", hex::encode(&binary_data));
+                        }
+                    } else {
+                        log::warn!("❌ No binary session data available for IP analysis");
+                    }
+                    
                     Ok(pencore.clone())
                 } else if response_pack.get_elements().len() > 0 {
                     // If we have elements but no explicit error, assume success
@@ -185,7 +221,7 @@ impl AuthClient {
     }
 
     /// Perform hub authentication
-    async fn perform_hub_authentication(&self, stream: &mut TcpStream) -> Result<(), VpnError> {
+    async fn perform_hub_authentication(&mut self, _stream: &mut TcpStream) -> Result<(), VpnError> {
         log::info!("Authenticating with hub: {}", self.hub_name);
         
         // Create authentication packet for clustered SoftEther server
@@ -247,8 +283,11 @@ impl AuthClient {
         
         // Parse response with improved error handling
         match Pack::from_bytes(response_data.to_vec().into()) {
-            Ok(response_pack) => {
+            Ok(mut response_pack) => {
                 log::debug!("Successfully parsed PACK response with {} elements", response_pack.elements.len());
+                
+                // Store the pack data for IP analysis
+                self.pack_data = Some(response_pack.clone());
                 
                 // Check for error element (which we know we can parse successfully)
                 if let Some(error_element) = response_pack.get_element("error") {
@@ -598,6 +637,11 @@ impl AuthClient {
         self.server_address.parse().ok()
     }
 
+    /// Get the stored PACK data from authentication response
+    pub fn get_pack_data(&self) -> Option<&Pack> {
+        self.pack_data.as_ref()
+    }
+
     /// Complete SSL-VPN handshake after authentication 
     /// This is CRITICAL - the server stays in "initializing" without this
     pub async fn complete_ssl_vpn_handshake(&self) -> Result<(), VpnError> {
@@ -900,17 +944,11 @@ impl AuthClient {
                     }
                 }
                 
-                // Try multiple possible field names for IP configuration
-                let assigned_ip = response_pack.get_str("assigned_ip")
-                    .or_else(|| response_pack.get_str("client_ip"))
-                    .or_else(|| response_pack.get_str("your_ip"))
-                    .or_else(|| response_pack.get_str("ip"))
+                let assigned_ip = response_pack.get_str("client_ip")
+                    .or_else(|| response_pack.get_str("assigned_ip"))
                     .or_else(|| response_pack.get_str("dhcp_ip"));
-                    
                 let gateway_ip = response_pack.get_str("gateway_ip")
                     .or_else(|| response_pack.get_str("server_ip"))
-                    .or_else(|| response_pack.get_str("router"))
-                    .or_else(|| response_pack.get_str("gateway"))
                     .or_else(|| response_pack.get_str("vpn_server_ip"));
                     
                 let subnet_mask = response_pack.get_str("subnet_mask")

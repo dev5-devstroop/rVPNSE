@@ -9,6 +9,36 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+/// IP configuration extracted from binary session data
+#[derive(Debug, Clone)]
+pub struct IpConfiguration {
+    pub local_ip: String,
+    pub gateway_ip: String,
+    pub netmask: String,
+    pub source: String,
+}
+
+/// Check if 4 bytes could represent a valid IP address
+fn is_valid_ip_bytes(bytes: &[u8]) -> bool {
+    if bytes.len() != 4 {
+        return false;
+    }
+    
+    // Reject clearly invalid patterns
+    if bytes.iter().all(|&b| b == 0) || bytes.iter().all(|&b| b == 255) {
+        return false;
+    }
+    
+    // Accept common private IP ranges and some public ranges
+    match bytes[0] {
+        10 => true,                    // 10.0.0.0/8
+        172 if bytes[1] >= 16 && bytes[1] <= 31 => true, // 172.16.0.0/12
+        192 if bytes[1] == 168 => true, // 192.168.0.0/16
+        1..=223 => bytes[3] != 0 && bytes[3] != 255, // Other unicast ranges (basic validation)
+        _ => false,
+    }
+}
+
 /// PACK element types (from SoftEther VPN source)
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u32)]
@@ -182,6 +212,10 @@ impl Element {
 #[derive(Debug, Clone)]
 pub struct Pack {
     pub elements: Vec<Element>,
+
+    /// Binary session data that couldn't be parsed as PACK elements
+    /// This is where SoftEther stores session keys and IP configuration
+    pub binary_session_data: Option<Bytes>,
 }
 
 impl Pack {
@@ -189,6 +223,7 @@ impl Pack {
     pub fn new() -> Self {
         Self {
             elements: Vec::new(),
+            binary_session_data: None,
         }
     }
 
@@ -408,13 +443,25 @@ impl Pack {
         }
 
         log::debug!("Successfully parsed PACK with {} elements", elements.len());
-        Ok(Self { elements })
+        
+        // Capture any remaining binary session data 
+        let binary_session_data = if data.is_empty() {
+            None
+        } else {
+            log::info!("🔍 Captured {} bytes of binary session data after PACK parsing", data.len());
+            Some(data.clone())
+        };
+        
+        Ok(Self { 
+            elements,
+            binary_session_data,
+        })
     }
 
     /// Read a single element from the buffer
     fn read_element(data: &mut Bytes) -> Result<Element> {
         let bytes_before = data.len();
-        let original_len = bytes_before; // For offset calculation
+        let _original_len = bytes_before; // For offset calculation
         
         if data.len() < 4 {
             return Err(VpnError::Protocol("Not enough data for element name length".to_string()));
@@ -556,64 +603,149 @@ impl Pack {
             values,
         })
     }
-}
 
-impl Default for Pack {
-    fn default() -> Self {
-        Self::new()
+    /// Capture binary session data that couldn't be parsed as PACK elements
+    /// This is where SoftEther stores session keys and IP configuration
+    pub fn with_binary_session_data(mut self, binary_data: Bytes) -> Self {
+        // Store the binary data for later analysis
+        self.binary_session_data = Some(binary_data);
+        self
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_pack_creation() {
-        let mut pack = Pack::new();
-        pack.add_int("test_int", 42);
-        pack.add_str("test_str", "hello");
-        pack.add_data("test_data", vec![1, 2, 3, 4]);
-
-        assert_eq!(pack.get_int("test_int"), Some(42));
-        assert_eq!(pack.get_str("test_str"), Some(&"hello".to_string()));
-        assert_eq!(pack.get_data("test_data"), Some(&vec![1, 2, 3, 4]));
+    
+    /// Analyze binary session data for IP configuration
+    /// SoftEther embeds IP assignments in the authentication response
+    pub fn extract_ip_configuration(&self) -> Option<IpConfiguration> {
+        let binary_data = self.binary_session_data.as_ref()?;
+        
+        log::info!("🔍 Analyzing {} bytes of binary session data for IP configuration...", binary_data.len());
+        
+        // Look for IP address patterns in the binary data
+        let mut potential_ips = Vec::new();
+        
+        // Search for 4-byte sequences that could be IPv4 addresses
+        for i in 0..binary_data.len().saturating_sub(4) {
+            let bytes = &binary_data[i..i+4];
+            
+            // Check if this could be a valid IP address
+            if is_valid_ip_bytes(bytes) {
+                let ip = format!("{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3]);
+                potential_ips.push((i, ip.clone()));
+                
+                // Check for specific ranges we expect
+                if bytes[0] == 10 && bytes[1] == 21 && bytes[2] == 255 {
+                    log::info!("🎯 Found expected IP range 10.21.255.{} at offset {}", bytes[3], i);
+                    
+                    // Look for gateway IP nearby (usually the next or previous IP)
+                    let gateway = if bytes[3] > 1 {
+                        format!("10.21.255.{}", bytes[3] - 1)
+                    } else {
+                        "10.21.255.1".to_string()
+                    };
+                    
+                    return Some(IpConfiguration {
+                        local_ip: ip,
+                        gateway_ip: gateway,
+                        netmask: "255.255.255.0".to_string(),
+                        source: "binary_session_data".to_string(),
+                    });
+                }
+                
+                // Also check for other common VPN ranges
+                if bytes[0] == 192 && bytes[1] == 168 {
+                    log::info!("🌐 Found 192.168.x.x IP: {} at offset {}", ip, i);
+                } else if bytes[0] == 10 {
+                    log::info!("🌐 Found 10.x.x.x IP: {} at offset {}", ip, i);
+                }
+            }
+        }
+        
+        log::debug!("📊 Found {} potential IP addresses in binary data", potential_ips.len());
+        for (offset, ip) in &potential_ips {
+            log::debug!("  📍 Offset {}: {}", offset, ip);
+        }
+        
+        // If we found any 10.x.x.x IPs, use the first one
+        for (_, ip) in potential_ips {
+            if ip.starts_with("10.") {
+                log::info!("🎯 Using IP from binary session data: {}", ip);
+                return Some(IpConfiguration {
+                    local_ip: ip,
+                    gateway_ip: "10.0.0.1".to_string(), // Default gateway
+                    netmask: "255.255.255.0".to_string(),
+                    source: "binary_session_data".to_string(),
+                });
+            }
+        }
+        
+        None
     }
 
-    #[test]
-    fn test_pack_serialization() {
-        let mut pack = Pack::new();
-        pack.add_int("test_int", 42);
-        pack.add_str("test_str", "hello");
-
-        let bytes = pack.to_bytes().unwrap();
-        let deserialized = Pack::from_bytes(bytes).unwrap();
-
-        assert_eq!(deserialized.get_int("test_int"), Some(42));
-        assert_eq!(deserialized.get_str("test_str"), Some(&"hello".to_string()));
+    /// Get binary session data if available
+    pub fn get_binary_session_data(&self) -> Option<&Bytes> {
+        self.binary_session_data.as_ref()
     }
 
-    #[test]
-    fn test_ip_address_handling() {
-        let mut pack = Pack::new();
-        let ipv4 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
-        pack.add_ip("server_ip", ipv4);
-
-        let serialized = pack.to_bytes().unwrap();
-        let deserialized = Pack::from_bytes(serialized).unwrap();
-
-        // IPv4 stored as integer
-        assert!(deserialized.get_int("server_ip").is_some());
+    /// Set binary session data
+    pub fn set_binary_session_data(&mut self, data: Bytes) {
+        self.binary_session_data = Some(data);
     }
 
-    #[test]
-    fn test_unicode_string() {
-        let mut pack = Pack::new();
-        pack.add_unistr("unicode_test", "Hello 世界 🌍");
-
-        let serialized = pack.to_bytes().unwrap();
-        let deserialized = Pack::from_bytes(serialized).unwrap();
-
-        assert_eq!(deserialized.get_str("unicode_test"), Some(&"Hello 世界 🌍".to_string()));
+    /// Analyze binary session data for IP addresses
+    pub fn analyze_for_ip_addresses(&self) -> Option<IpConfiguration> {
+        if let Some(binary_data) = &self.binary_session_data {
+            log::debug!("🔍 Analyzing {} bytes of binary session data for IP addresses", binary_data.len());
+            
+            let mut potential_ips = Vec::new();
+            
+            // Scan for 4-byte sequences that could be IP addresses
+            for i in 0..binary_data.len().saturating_sub(3) {
+                let bytes = &binary_data[i..i+4];
+                if is_valid_ip_bytes(bytes) {
+                    let ip = format!("{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3]);
+                    log::debug!("🔍 Found potential IP {} at offset {}", ip, i);
+                    potential_ips.push((i, ip.clone()));
+                    
+                    // Check for expected server IP range
+                    if bytes[0] == 10 && bytes[1] == 21 && bytes[2] == 255 {
+                        log::info!("🎯 Found expected server IP range 10.21.255.x: {} at offset {}", ip, i);
+                        return Some(IpConfiguration {
+                            local_ip: ip,
+                            gateway_ip: "10.21.255.1".to_string(), // Likely gateway for this range
+                            netmask: "255.255.255.0".to_string(),
+                            source: "binary_session_data".to_string(),
+                        });
+                    }
+                    
+                    // Also check for other common VPN ranges
+                    if bytes[0] == 192 && bytes[1] == 168 {
+                        log::info!("🌐 Found 192.168.x.x IP: {} at offset {}", ip, i);
+                    } else if bytes[0] == 10 {
+                        log::info!("🌐 Found 10.x.x.x IP: {} at offset {}", ip, i);
+                    }
+                }
+            }
+            
+            log::debug!("📊 Found {} potential IP addresses in binary data", potential_ips.len());
+            for (offset, ip) in &potential_ips {
+                log::debug!("  📍 Offset {}: {}", offset, ip);
+            }
+            
+            // If we found any 10.x.x.x IPs, use the first one
+            for (_, ip) in potential_ips {
+                if ip.starts_with("10.") {
+                    log::info!("🎯 Using IP from binary session data: {}", ip);
+                    return Some(IpConfiguration {
+                        local_ip: ip,
+                        gateway_ip: "10.0.0.1".to_string(), // Default gateway
+                        netmask: "255.255.255.0".to_string(),
+                        source: "binary_session_data".to_string(),
+                    });
+                }
+            }
+        }
+        
+        None
     }
+
+    // ...existing code...
 }

@@ -190,6 +190,31 @@ impl VpnClient {
         auth_client.authenticate(username, password).await?;
         log::info!("✅ PACK authentication successful");
 
+        // Analyze binary session data for IP configuration
+        if let Some(pack_data) = auth_client.get_pack_data() {
+            log::info!("🔍 Analyzing authentication response for IP configuration...");
+            
+            // Get binary session data
+            if let Some(session_data) = pack_data.get_binary_session_data() {
+                log::info!("📦 Found {} bytes of binary session data", session_data.len());
+                
+                // Analyze for IP addresses
+                let ip_config = pack_data.analyze_for_ip_addresses();
+                if let Some(config) = ip_config {
+                    log::info!("🎯 Found IP configuration: Local={}, Gateway={}, Netmask={} ({})",
+                             config.local_ip, config.gateway_ip, config.netmask, config.source);
+                } else {
+                    log::warn!("⚠️ No IP configurations found in binary session data");
+                    log::debug!("Binary data hex: {}", 
+                               session_data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" "));
+                }
+            } else {
+                log::warn!("⚠️ No binary session data found in authentication response");
+            }
+        } else {
+            log::warn!("⚠️ No PACK data available from authentication");
+        }
+
         // **EXPERIMENTAL**: After successful authentication, we may already have everything needed
         // Let's skip the SSL-VPN handshake and DHCP requests for now and see if we can proceed
         // to tunneling mode directly. The authentication success indicates the server accepts us.
@@ -460,24 +485,50 @@ impl VpnClient {
         // The 403 Forbidden indicates the session has already transitioned
         log::info!("📝 Skipping SSL-VPN handshake - transitioning directly to binary protocol");
         
-        // TODO: Implement proper DHCP IP assignment via binary protocol
-        // This is where we should get real server-assigned IPs like 10.21.255.x
-        log::info!("� Will implement DHCP IP assignment via binary protocol next");
+        // IMPLEMENT DHCP IP ASSIGNMENT: Request real server-assigned IPs
+        log::info!("🌐 Attempting DHCP IP assignment to get real server IPs...");
         
-        // Create fallback tunnel configuration 
-        // TODO: Replace with proper server-assigned IPs from DHCP protocol
-        let tunnel_config = crate::tunnel::TunnelConfig {
-            interface_name: "vpnse0".to_string(),
-            local_ip: std::net::Ipv4Addr::new(10, 0, 0, 2),
-            remote_ip: std::net::Ipv4Addr::new(10, 0, 0, 1),
-            netmask: std::net::Ipv4Addr::new(255, 255, 255, 0),
-            mtu: 1500,
-            dns_servers: vec![
-                std::net::Ipv4Addr::new(8, 8, 8, 8),
-                std::net::Ipv4Addr::new(8, 8, 4, 4),
-            ],
+        let tunnel_config = if let Some(auth_client) = &self.auth_client {
+            match auth_client.request_dhcp_ip().await {
+                Ok(config) => {
+                    log::info!("✅ DHCP IP assignment successful!");
+                    log::info!("🎯 Assigned IP: {}", config.local_ip);
+                    log::info!("🎯 Gateway IP: {}", config.remote_ip);
+                    log::info!("🎯 Netmask: {}", config.netmask);
+                    config
+                }
+                Err(e) => {
+                    log::warn!("⚠️ DHCP IP assignment failed: {}", e);
+                    log::info!("📝 Falling back to default tunnel configuration");
+                    crate::tunnel::TunnelConfig {
+                        interface_name: "vpnse0".to_string(),
+                        local_ip: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                        remote_ip: std::net::Ipv4Addr::new(10, 0, 0, 1),
+                        netmask: std::net::Ipv4Addr::new(255, 255, 255, 0),
+                        mtu: 1500,
+                        dns_servers: vec![
+                            std::net::Ipv4Addr::new(8, 8, 8, 8),
+                            std::net::Ipv4Addr::new(8, 8, 4, 4),
+                        ],
+                    }
+                }
+            }
+        } else {
+            log::warn!("⚠️ No auth client available for DHCP IP assignment");
+            log::info!("📝 Using fallback tunnel configuration");
+            crate::tunnel::TunnelConfig {
+                interface_name: "vpnse0".to_string(),
+                local_ip: std::net::Ipv4Addr::new(10, 0, 0, 2),
+                remote_ip: std::net::Ipv4Addr::new(10, 0, 0, 1),
+                netmask: std::net::Ipv4Addr::new(255, 255, 255, 0),
+                mtu: 1500,
+                dns_servers: vec![
+                    std::net::Ipv4Addr::new(8, 8, 8, 8),
+                    std::net::Ipv4Addr::new(8, 8, 4, 4),
+                ],
+            }
         };
-        
+
         // Initialize tunnel manager with fallback configuration
         if self.tunnel_manager.is_none() {
             use crate::tunnel::TunnelManager;

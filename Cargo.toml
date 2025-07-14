@@ -40,6 +40,8 @@ reqwest = { version = "0.12", features = ["rustls-tls", "stream"] }
 url = "2.5"
 # Base64 encoding for authentication
 base64 = "0.22"
+# Hex encoding for binary data debugging
+hex = "0.4"
 # Network interface management
 ipnet = "2.9"
 # TUN/TAP interface creation and management

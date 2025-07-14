@@ -1,0 +1,42 @@
+[server]
+address = "127.0.0.1"
+hostname = "vpn.example.com"
+port = 443
+hub = "DEFAULT"
+use_ssl = true
+verify_certificate = true
+timeout = 30
+keepalive_interval = 60
+
+[connection_limits]
+max_connections = 10
+enable_pooling = true
+pool_size = 5
+idle_timeout = 300
+max_lifetime = 3600
+enable_multiplexing = false
+max_streams_per_connection = 100
+retry_attempts = 3
+retry_delay = 1000
+backoff_factor = 2.0
+max_retry_delay = 30
+health_check_interval = 30
+rate_limit_rps = 100
+rate_limit_burst = 200
+
+[auth]
+method = "password"
+username = "vpnuser"
+password = "vpnpass"
+
+[network]
+enable_ipv6 = false
+user_agent = "rVPNSE/0.1.0"
+enable_http2 = true
+tcp_keepalive = true
+tcp_nodelay = true
+
+[logging]
+level = "info"
+json_format = false
+colored = true
