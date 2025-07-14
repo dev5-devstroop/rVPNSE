@@ -22,6 +22,7 @@ pub struct AuthClient {
     session_id: Option<String>,
     is_authenticated: bool,
     pack_data: Option<Pack>,  // Store the authentication response PACK data
+    ip_config: Option<crate::protocol::pack::IpConfiguration>,  // Store extracted IP config
 }
 
 impl AuthClient {
@@ -52,6 +53,7 @@ impl AuthClient {
             session_id: None,
             is_authenticated: false,
             pack_data: None,
+            ip_config: None,
         })
     }
 
@@ -68,7 +70,7 @@ impl AuthClient {
     }
 
     /// Establish a session with the server
-    async fn establish_session(&self, stream: &mut TcpStream) -> Result<String, VpnError> {
+    async fn establish_session(&mut self, stream: &mut TcpStream) -> Result<String, VpnError> {
         log::info!("Establishing session with server");
         
         // Create session establishment packet
@@ -139,6 +141,8 @@ impl AuthClient {
                                 log::info!("   Local IP: {} (source: {})", ip_config.local_ip, ip_config.source);
                                 log::info!("   Gateway: {}", ip_config.gateway_ip);
                                 log::info!("   Netmask: {}", ip_config.netmask);
+                                // Store the IP config for later use
+                                self.ip_config = Some(ip_config);
                             } else {
                                 log::warn!("❌ No IP configuration found in binary session data");
                                 log::debug!("Binary data hex: {}", hex::encode(&binary_data));
@@ -178,6 +182,8 @@ impl AuthClient {
                             log::info!("   Local IP: {} (source: {})", ip_config.local_ip, ip_config.source);
                             log::info!("   Gateway: {}", ip_config.gateway_ip);
                             log::info!("   Netmask: {}", ip_config.netmask);
+                            // Store the IP config for later use
+                            self.ip_config = Some(ip_config);
                         } else {
                             log::warn!("❌ No IP configuration found in binary session data");
                             log::debug!("Binary data hex: {}", hex::encode(&binary_data));
@@ -288,6 +294,23 @@ impl AuthClient {
                 
                 // Store the pack data for IP analysis
                 self.pack_data = Some(response_pack.clone());
+                
+                // CRITICAL: Analyze binary session data for IP configuration
+                if let Some(binary_data) = response_pack.get_binary_session_data() {
+                    log::debug!("🔍 Analyzing {} bytes of binary session data for IP configuration", binary_data.len());
+                    if let Some(ip_config) = response_pack.analyze_for_ip_addresses() {
+                        log::info!("🎯 Found IP configuration in hub authentication:");
+                        log::info!("   Local IP: {} (source: {})", ip_config.local_ip, ip_config.source);
+                        log::info!("   Gateway: {}", ip_config.gateway_ip);
+                        log::info!("   Netmask: {}", ip_config.netmask);
+                        // Store the IP config for later use
+                        self.ip_config = Some(ip_config);
+                    } else {
+                        log::debug!("❌ No IP configuration found in binary session data");
+                    }
+                } else {
+                    log::debug!("❌ No binary session data available for IP analysis");
+                }
                 
                 // Check for error element (which we know we can parse successfully)
                 if let Some(error_element) = response_pack.get_element("error") {
@@ -598,7 +621,26 @@ impl AuthClient {
         }
     }
 
-    /// Extract authentication error information from PACK response, even if parsing fails partially
+    /// Get the IP configuration extracted from authentication response
+    pub fn get_ip_config(&self) -> Option<&crate::protocol::pack::IpConfiguration> {
+        log::info!("🔍 get_ip_config() called - checking stored config...");
+        if let Some(ref config) = self.ip_config {
+            log::info!("✅ Found stored IP config: Local={}, Gateway={}, Source={}", 
+                      config.local_ip, config.gateway_ip, config.source);
+        } else {
+            log::warn!("⚠️ No IP config stored in auth client!");
+        }
+        self.ip_config.as_ref()
+    }
+
+    /// Set the IP configuration from detected server response
+    pub fn set_ip_config(&mut self, config: crate::protocol::pack::IpConfiguration) {
+        log::info!("💾 Storing IP configuration: Local={}, Gateway={}, Source={}", 
+                  config.local_ip, config.gateway_ip, config.source);
+        self.ip_config = Some(config);
+    }
+
+    /// Extract auth info from PACK data
     fn extract_auth_info(pack_data: &[u8]) -> Option<String> {
         // Try to parse PACK normally first
         if let Ok(pack) = Pack::from_bytes(bytes::Bytes::copy_from_slice(pack_data)) {
@@ -1028,23 +1070,21 @@ impl AuthClient {
         Ok(TunnelConfig::with_fallback_ip())
     }
 
-    // ...existing code...
-}
-
-/// Convenience function to create an authenticated connection
-pub async fn authenticate_connection(
-    server_address: String,
-    hub_name: String,
-    username: String,
-    password: String,
-) -> Result<(TcpStream, String), VpnError> {
-    // Connect to server
-    let mut stream = TcpStream::connect(&server_address).await
-        .map_err(|e| VpnError::Network(format!("Failed to connect to server: {}", e)))?;
+    /// Convenience function to create an authenticated connection
+    pub async fn authenticate_connection(
+        server_address: String,
+        hub_name: String,
+        username: String,
+        password: String,
+    ) -> Result<(TcpStream, String), VpnError> {
+        // Connect to server
+        let mut stream = TcpStream::connect(&server_address).await
+            .map_err(|e| VpnError::Network(format!("Failed to connect to server: {}", e)))?;
     
-    // Create auth client and authenticate
-    let mut auth_client = AuthClient::new(server_address, None, hub_name, username, password, false)?;
-    let session_id = auth_client.authenticate_with_stream(&mut stream).await?;
+        // Create auth client and authenticate
+        let mut auth_client = AuthClient::new(server_address, None, hub_name, username, password, false)?;
+        let session_id = auth_client.authenticate_with_stream(&mut stream).await?;
     
-    Ok((stream, session_id))
+        Ok((stream, session_id))
+    }
 }

@@ -1,0 +1,60 @@
+# Example configuration with SSL-VPN clustering support
+
+[server]
+address = "vpn.example.com"
+hostname = "vpn.example.com"  
+port = 443
+hub_name = "VPN"
+use_ssl = true
+verify_ssl_cert = false
+
+[auth]
+username = "devstroop"
+password = "devstroop1112222"
+auth_type = "password"
+
+[network]
+enable_ipv6 = false
+timeout = 30
+keepalive = 60
+user_agent = "rVPNSE/0.1.0"
+
+# SSL-VPN Clustering Configuration for RPC Farm
+[clustering]
+enabled = true
+cluster_nodes = [
+    "vpn-node1.example.com:443",
+    "vpn-node2.example.com:443", 
+    "vpn-node3.example.com:443"
+]
+load_balancing_strategy = "RoundRobin"  # Options: RoundRobin, LeastConnections, Random, WeightedRoundRobin, ConsistentHashing
+connections_per_node = 10
+current_peer_count = 0  # Will be updated dynamically
+max_peers_per_cluster = 100
+health_check_interval = 30  # seconds
+failover_timeout = 60  # seconds  
+enable_failover = true
+rpc_protocol_version = "1.0"
+session_distribution_mode = "Distributed"  # Options: Distributed, Sticky, Replicated
+
+[connection_limits]
+max_connections = 50
+enable_pooling = true
+pool_size = 10
+idle_timeout = 300
+max_lifetime = 3600
+enable_multiplexing = false
+max_streams_per_connection = 100
+retry_attempts = 3
+retry_delay = 1000
+backoff_factor = 2.0
+max_retry_delay = 30
+health_check_interval = 30
+rate_limit_rps = 100
+rate_limit_burst = 200
+
+[logging]
+level = "info"
+target = "stdout"
+json_format = false
+colored = true

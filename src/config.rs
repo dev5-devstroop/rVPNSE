@@ -95,6 +95,77 @@ pub struct ConnectionLimitsConfig {
     pub rate_limit_burst: u32,
 }
 
+/// Clustering configuration for SSL-VPN RPC farm support
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusteringConfig {
+    /// Enable clustering support
+    #[serde(default = "default_false")]
+    pub enabled: bool,
+    /// List of cluster node addresses (hostname:port)
+    #[serde(default = "default_cluster_nodes")]
+    pub cluster_nodes: Vec<String>,
+    /// Load balancing strategy
+    #[serde(default = "default_lb_strategy")]
+    pub load_balancing_strategy: LoadBalancingStrategy,
+    /// Number of connections per cluster node
+    #[serde(default = "default_connections_per_node")]
+    pub connections_per_node: u32,
+    /// Peer count tracking (current active peers)
+    #[serde(default = "default_zero")]
+    pub current_peer_count: u32,
+    /// Maximum peers per cluster
+    #[serde(default = "default_max_peers")]
+    pub max_peers_per_cluster: u32,
+    /// Health check interval for cluster nodes (seconds)
+    #[serde(default = "default_cluster_health_interval")]
+    pub health_check_interval: u32,
+    /// Failover timeout (seconds)
+    #[serde(default = "default_failover_timeout")]
+    pub failover_timeout: u32,
+    /// Enable automatic failover
+    #[serde(default = "default_true")]
+    pub enable_failover: bool,
+    /// RPC farm protocol version
+    #[serde(default = "default_rpc_version")]
+    pub rpc_protocol_version: String,
+    /// Session distribution mode
+    #[serde(default = "default_session_distribution")]
+    pub session_distribution_mode: SessionDistributionMode,
+}
+
+/// Load balancing strategies for cluster nodes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LoadBalancingStrategy {
+    RoundRobin,
+    LeastConnections,
+    WeightedRoundRobin,
+    Random,
+    ConsistentHashing,
+}
+
+/// Session distribution modes for clustering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SessionDistributionMode {
+    /// Distribute sessions evenly across nodes
+    Distributed,
+    /// Stick sessions to specific nodes
+    Sticky,
+    /// Replicate sessions across multiple nodes
+    Replicated,
+}
+
+impl Default for LoadBalancingStrategy {
+    fn default() -> Self {
+        LoadBalancingStrategy::RoundRobin
+    }
+}
+
+impl Default for SessionDistributionMode {
+    fn default() -> Self {
+        SessionDistributionMode::Distributed
+    }
+}
+
 /// Authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
@@ -170,6 +241,9 @@ pub struct Config {
     /// Logging configuration
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Clustering configuration
+    #[serde(default)]
+    pub clustering: ClusteringConfig,
 }
 
 /// Type alias for backward compatibility
@@ -248,6 +322,23 @@ impl Config {
             ));
         }
 
+        // Validate clustering configuration
+        if self.clustering.enabled {
+            if self.clustering.cluster_nodes.is_empty() {
+                return Err(VpnError::Config(
+                    "Cluster nodes list cannot be empty when clustering is enabled".into(),
+                ));
+            }
+
+            for node in &self.clustering.cluster_nodes {
+                if !node.contains(':') {
+                    return Err(VpnError::Config(format!(
+                        "Invalid cluster node address: {node}. Expected format: hostname:port"
+                    )));
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -275,6 +366,7 @@ impl Config {
             },
             network: NetworkConfig::default(),
             logging: LoggingConfig::default(),
+            clustering: ClusteringConfig::default(),
         }
     }
 }
@@ -338,6 +430,24 @@ impl Default for LoggingConfig {
     }
 }
 
+impl Default for ClusteringConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_false(),
+            cluster_nodes: default_cluster_nodes(),
+            load_balancing_strategy: default_lb_strategy(),
+            connections_per_node: default_connections_per_node(),
+            current_peer_count: default_zero(),
+            max_peers_per_cluster: default_max_peers(),
+            health_check_interval: default_cluster_health_interval(),
+            failover_timeout: default_failover_timeout(),
+            enable_failover: default_true(),
+            rpc_protocol_version: default_rpc_version(),
+            session_distribution_mode: default_session_distribution(),
+        }
+    }
+}
+
 // Default value functions
 fn default_true() -> bool { true }
 fn default_false() -> bool { false }
@@ -357,6 +467,15 @@ fn default_rate_limit() -> u32 { 100 }
 fn default_burst_size() -> u32 { 200 }
 fn default_user_agent() -> String { "rVPNSE/0.1.0".to_string() }
 fn default_log_level() -> String { "info".to_string() }
+fn default_cluster_nodes() -> Vec<String> { vec!["127.0.0.1:443".to_string()] }
+fn default_lb_strategy() -> LoadBalancingStrategy { LoadBalancingStrategy::RoundRobin }
+fn default_connections_per_node() -> u32 { 10 }
+fn default_zero() -> u32 { 0 }
+fn default_max_peers() -> u32 { 100 }
+fn default_cluster_health_interval() -> u32 { 30 }
+fn default_failover_timeout() -> u32 { 60 }
+fn default_rpc_version() -> String { "1.0".to_string() }
+fn default_session_distribution() -> SessionDistributionMode { SessionDistributionMode::Distributed }
 
 #[cfg(test)]
 mod tests {

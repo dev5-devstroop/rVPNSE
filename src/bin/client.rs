@@ -5,7 +5,7 @@
 
 use rvpnse::{
     client::{VpnClient, ConnectionStatus},
-    config::{Config, ServerConfig, AuthConfig, AuthMethod, NetworkConfig, ConnectionLimitsConfig, LoggingConfig},
+    config::{Config, ServerConfig, AuthConfig, AuthMethod, NetworkConfig, ConnectionLimitsConfig, LoggingConfig, ClusteringConfig},
     error::{Result, VpnError},
 };
 use std::env;
@@ -187,6 +187,7 @@ fn create_default_config() -> Config {
         },
         network: NetworkConfig::default(),
         logging: LoggingConfig::default(),
+        clustering: ClusteringConfig::default(),
     }
 }
 

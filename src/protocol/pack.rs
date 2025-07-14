@@ -400,11 +400,11 @@ impl Pack {
         
         let mut elements = Vec::with_capacity(num_elements as usize);
 
-        // Read each element with graceful error handling
+        // Read each element with graceful error handling for SoftEther's mixed PACK + binary format
         for i in 0..num_elements {
             let bytes_before = data.len();
-            log::debug!("Parsing element {} of {}, bytes remaining before element: {}, offset: {}", 
-                       i + 1, num_elements, data.len(), bytes_before - data.len());
+            log::debug!("Parsing element {} of {}, bytes remaining before element: {}", 
+                       i + 1, num_elements, data.len());
         
             // Add detailed hex dump of the next 16 bytes for debugging
             if data.len() >= 16 {
@@ -412,7 +412,31 @@ impl Pack {
                 log::debug!("Next 16 bytes at element start: {:02x?}", debug_bytes);
             }
             
-            // Try to parse element, but be tolerant of failures after the first element
+            // Check if we're dealing with binary session data (common in SoftEther auth responses)
+            // Look ahead at the element type to see if it's a valid PACK type (0-4)
+            if data.len() >= 8 {
+                // Skip name length and name to get to element type
+                let name_len = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
+                let bytes_to_skip = 4 + ((name_len + 3) & !3); // name length + padded name
+                
+                if data.len() > bytes_to_skip + 4 {
+                    let element_type_raw = u32::from_be_bytes([
+                        data[bytes_to_skip], 
+                        data[bytes_to_skip + 1], 
+                        data[bytes_to_skip + 2], 
+                        data[bytes_to_skip + 3]
+                    ]);
+                    
+                    // If element type is way out of range (0-4), this is likely binary session data
+                    if element_type_raw > 10000 {
+                        log::info!("🔍 Detected binary session data at element {} (type {}), capturing remaining {} bytes", 
+                                  i + 1, element_type_raw, data.len());
+                        break;
+                    }
+                }
+            }
+            
+            // Try to parse element
             match Self::read_element(&mut data) {
                 Ok(element) => {
                     let bytes_after = data.len();
@@ -429,15 +453,10 @@ impl Pack {
                 Err(e) => {
                     // In SoftEther authentication responses, it's normal for later elements to contain
                     // binary session data that doesn't conform to PACK format
-                    if i > 0 {
-                        log::debug!("Element {} contains binary session data (not PACK format): {}", i + 1, e);
-                        log::debug!("Successfully parsed {} of {} elements, remaining data is binary session info", i, num_elements);
-                        break;
-                    } else {
-                        // If we can't parse the first element, that's a real problem
-                        log::warn!("Failed to parse first element: {}", e);
-                        return Err(e);
-                    }
+                    log::info!("🔍 Element {} parsing failed (likely binary data): {}", i + 1, e);
+                    log::info!("🔍 Successfully parsed {} of {} elements, capturing remaining {} bytes as binary session data", 
+                              i, num_elements, data.len());
+                    break;
                 }
             }
         }
@@ -693,7 +712,21 @@ impl Pack {
     /// Analyze binary session data for IP addresses
     pub fn analyze_for_ip_addresses(&self) -> Option<IpConfiguration> {
         if let Some(binary_data) = &self.binary_session_data {
-            log::debug!("🔍 Analyzing {} bytes of binary session data for IP addresses", binary_data.len());
+            log::info!("🔍 Analyzing {} bytes of binary session data for IP addresses", binary_data.len());
+            
+            // First, dump hex of binary data for debugging
+            let hex_dump: String = binary_data.iter().enumerate()
+                .map(|(i, &b)| {
+                    if i % 16 == 0 {
+                        format!("\n{:04x}: {:02x}", i, b)
+                    } else if i % 8 == 0 {
+                        format!("  {:02x}", b)
+                    } else {
+                        format!(" {:02x}", b)
+                    }
+                })
+                .collect();
+            log::debug!("Binary session data hex dump:{}", hex_dump);
             
             let mut potential_ips = Vec::new();
             
@@ -702,48 +735,118 @@ impl Pack {
                 let bytes = &binary_data[i..i+4];
                 if is_valid_ip_bytes(bytes) {
                     let ip = format!("{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3]);
-                    log::debug!("🔍 Found potential IP {} at offset {}", ip, i);
-                    potential_ips.push((i, ip.clone()));
-                    
-                    // Check for expected server IP range
-                    if bytes[0] == 10 && bytes[1] == 21 && bytes[2] == 255 {
-                        log::info!("🎯 Found expected server IP range 10.21.255.x: {} at offset {}", ip, i);
-                        return Some(IpConfiguration {
-                            local_ip: ip,
-                            gateway_ip: "10.21.255.1".to_string(), // Likely gateway for this range
-                            netmask: "255.255.255.0".to_string(),
-                            source: "binary_session_data".to_string(),
-                        });
-                    }
-                    
-                    // Also check for other common VPN ranges
-                    if bytes[0] == 192 && bytes[1] == 168 {
-                        log::info!("🌐 Found 192.168.x.x IP: {} at offset {}", ip, i);
-                    } else if bytes[0] == 10 {
-                        log::info!("🌐 Found 10.x.x.x IP: {} at offset {}", ip, i);
-                    }
+                    log::info!("🔍 Found potential IP {} at offset {} (hex: {:02x}{:02x}{:02x}{:02x})", 
+                              ip, i, bytes[0], bytes[1], bytes[2], bytes[3]);
+                    potential_ips.push((i, ip.clone(), bytes.to_vec()));
                 }
             }
             
-            log::debug!("📊 Found {} potential IP addresses in binary data", potential_ips.len());
-            for (offset, ip) in &potential_ips {
-                log::debug!("  📍 Offset {}: {}", offset, ip);
+            log::info!("📊 Found {} potential IP addresses in binary data", potential_ips.len());
+            for (offset, ip, bytes) in &potential_ips {
+                log::info!("  📍 Offset {}: {} (bytes: {:?})", offset, ip, bytes);
             }
             
-            // If we found any 10.x.x.x IPs, use the first one
-            for (_, ip) in potential_ips {
-                if ip.starts_with("10.") {
-                    log::info!("🎯 Using IP from binary session data: {}", ip);
-                    return Some(IpConfiguration {
-                        local_ip: ip,
-                        gateway_ip: "10.0.0.1".to_string(), // Default gateway
-                        netmask: "255.255.255.0".to_string(),
-                        source: "binary_session_data".to_string(),
-                    });
+            // Look for common VPN IP patterns and choose the best one
+            let mut best_ip = None;
+            let mut best_gateway = "10.0.0.1".to_string();
+            let mut best_priority = 0;
+            
+            for (offset, ip, bytes) in potential_ips {
+                let mut priority = 0;
+                let mut gateway = "10.0.0.1".to_string();
+                
+                // Check for specific VPN server IP ranges with priority scoring
+                match bytes[0] {
+                    10 => {
+                        // 10.x.x.x range - very common for VPN
+                        if bytes[1] == 251 {
+                            // 10.251.x.x - very specific VPN server range
+                            priority = 100;
+                            gateway = format!("10.251.{}.1", bytes[2]);
+                            log::info!("🎯 Found 10.251.x.x VPN IP (PRIORITY 100): {} at offset {}", ip, offset);
+                        } else if bytes[1] == 21 && bytes[2] == 255 {
+                            // Specific server range 10.21.255.x
+                            priority = 90;
+                            gateway = "10.21.255.1".to_string();
+                            log::info!("🎯 Found VPN server IP range 10.21.255.x (PRIORITY 90): {} at offset {}", ip, offset);
+                        } else if bytes[1] >= 200 {
+                            // High 10.x range, likely VPN assigned
+                            priority = 80;
+                            gateway = format!("10.{}.{}.1", bytes[1], bytes[2]);
+                            log::info!("🎯 Found high 10.x IP (PRIORITY 80): {} at offset {}", ip, offset);
+                        } else if bytes[1] >= 100 {
+                            // Medium 10.x range
+                            priority = 60;
+                            gateway = format!("10.{}.{}.1", bytes[1], bytes[2]);
+                            log::info!("🌐 Found medium 10.x IP (PRIORITY 60): {} at offset {}", ip, offset);
+                        } else if bytes[1] > 0 {
+                            // Any other 10.x IP as fallback
+                            priority = 40;
+                            gateway = format!("10.{}.{}.1", bytes[1], bytes[2]);
+                            log::info!("🌐 Found 10.x IP (PRIORITY 40): {} at offset {}", ip, offset);
+                        }
+                    }
+                    192 if bytes[1] == 168 => {
+                        // 192.168.x.x range
+                        priority = 30;
+                        gateway = format!("192.168.{}.1", bytes[2]);
+                        log::info!("🌐 Found 192.168.x.x IP (PRIORITY 30): {} at offset {}", ip, offset);
+                    }
+                    172 if bytes[1] >= 16 && bytes[1] <= 31 => {
+                        // 172.16-31.x.x range
+                        priority = 35;
+                        gateway = format!("172.{}.{}.1", bytes[1], bytes[2]);
+                        log::info!("🌐 Found 172.x.x.x IP (PRIORITY 35): {} at offset {}", ip, offset);
+                    }
+                    // Add support for other common VPN ranges that appeared in the data
+                    100..=127 => {
+                        // 100-127.x.x.x range - often used for VPN
+                        priority = 70;
+                        gateway = format!("{}.{}.{}.1", bytes[0], bytes[1], bytes[2]);
+                        log::info!("🎯 Found 100-127.x.x.x VPN IP (PRIORITY 70): {} at offset {}", ip, offset);
+                    }
+                    208..=223 => {
+                        // High public ranges that might be VPN endpoints
+                        priority = 50;
+                        gateway = format!("{}.{}.{}.1", bytes[0], bytes[1], bytes[2]);
+                        log::info!("🌐 Found high public IP (PRIORITY 50): {} at offset {}", ip, offset);
+                    }
+                    _ => {
+                        // For other ranges, check if they look like valid VPN assignments
+                        // Look for IPs that are likely to be VPN-assigned based on patterns
+                        if bytes[1] > 10 && bytes[2] > 10 && bytes[3] > 10 && bytes[3] < 250 {
+                            priority = 25;
+                            gateway = format!("{}.{}.{}.1", bytes[0], bytes[1], bytes[2]);
+                            log::info!("🌐 Found potential VPN IP (PRIORITY 25): {} at offset {}", ip, offset);
+                        } else {
+                            continue;
+                        }
+                    }
                 }
+                
+                // Update best IP if this one has higher priority
+                if priority > best_priority {
+                    best_ip = Some(ip.clone());
+                    best_gateway = gateway;
+                    best_priority = priority;
+                    log::info!("🏆 New best IP: {} (priority {})", ip, priority);
+                }
+            }
+            
+            if let Some(local_ip) = best_ip {
+                log::info!("🎯 Selected IP configuration from binary session data:");
+                log::info!("   Local IP: {}", local_ip);
+                log::info!("   Gateway IP: {}", best_gateway);
+                return Some(IpConfiguration {
+                    local_ip,
+                    gateway_ip: best_gateway,
+                    netmask: "255.255.255.0".to_string(),
+                    source: "binary_session_data".to_string(),
+                });
             }
         }
         
+        log::warn!("⚠️ No valid IP configuration found in binary session data");
         None
     }
 

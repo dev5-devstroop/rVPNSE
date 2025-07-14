@@ -15,6 +15,156 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// Cluster node information
+#[derive(Debug, Clone)]
+pub struct ClusterNode {
+    pub address: String,
+    pub endpoint: Option<SocketAddr>,
+    pub is_healthy: bool,
+    pub active_connections: u32,
+    pub last_health_check: Instant,
+    pub response_time: Duration,
+}
+
+/// Cluster manager for handling multiple VPN endpoints
+#[derive(Debug)]
+pub struct ClusterManager {
+    nodes: Vec<ClusterNode>,
+    current_node_index: usize,
+    total_connections: u32,
+    config: crate::config::ClusteringConfig,
+    last_failover: Instant,
+}
+
+impl ClusterManager {
+    pub fn new(config: crate::config::ClusteringConfig) -> Self {
+        let nodes = config.cluster_nodes.iter().map(|addr| {
+            ClusterNode {
+                address: addr.clone(),
+                endpoint: None,
+                is_healthy: true,
+                active_connections: 0,
+                last_health_check: Instant::now(),
+                response_time: Duration::from_millis(0),
+            }
+        }).collect();
+
+        Self {
+            nodes,
+            current_node_index: 0,
+            total_connections: 0,
+            config,
+            last_failover: Instant::now(),
+        }
+    }
+
+    /// Get the next available node based on load balancing strategy
+    pub fn get_next_node(&mut self) -> Option<&mut ClusterNode> {
+        if self.nodes.is_empty() {
+            return None;
+        }
+
+        match self.config.load_balancing_strategy {
+            crate::config::LoadBalancingStrategy::RoundRobin => {
+                let current_index = self.current_node_index;
+                self.current_node_index = (self.current_node_index + 1) % self.nodes.len();
+                Some(&mut self.nodes[current_index])
+            },
+            crate::config::LoadBalancingStrategy::LeastConnections => {
+                self.nodes.iter_mut()
+                    .filter(|n| n.is_healthy)
+                    .min_by_key(|n| n.active_connections)
+            },
+            crate::config::LoadBalancingStrategy::Random => {
+                use rand::Rng;
+                let healthy_indices: Vec<_> = self.nodes.iter()
+                    .enumerate()
+                    .filter_map(|(i, n)| if n.is_healthy { Some(i) } else { None })
+                    .collect();
+                
+                if healthy_indices.is_empty() {
+                    return None;
+                }
+                
+                let mut rng = rand::thread_rng();
+                let idx = rng.gen_range(0..healthy_indices.len());
+                let node_index = healthy_indices[idx];
+                Some(&mut self.nodes[node_index])
+            },
+            _ => {
+                // Default to round-robin for other strategies
+                let current_index = self.current_node_index;
+                self.current_node_index = (self.current_node_index + 1) % self.nodes.len();
+                Some(&mut self.nodes[current_index])
+            }
+        }
+    }
+
+    /// Update peer count (current active peers across cluster)
+    pub fn update_peer_count(&mut self, count: u32) {
+        // Update the total peer count in the configuration
+        // This represents active peers, not connection attempts
+        self.total_connections = count;
+    }
+
+    /// Get current peer count
+    pub fn get_peer_count(&self) -> u32 {
+        self.total_connections
+    }
+
+    /// Get cluster nodes count
+    pub fn get_nodes_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Check if we can add more peers
+    pub fn can_add_peer(&self) -> bool {
+        self.total_connections < self.config.max_peers_per_cluster
+    }
+
+    /// Perform health check on cluster nodes
+    pub async fn health_check(&mut self) -> Result<()> {
+        for node in &mut self.nodes {
+            if node.last_health_check.elapsed() > Duration::from_secs(self.config.health_check_interval as u64) {
+                // Simple health check - try to resolve the address
+                match node.address.to_socket_addrs() {
+                    Ok(mut addrs) => {
+                        if let Some(addr) = addrs.next() {
+                            node.endpoint = Some(addr);
+                            node.is_healthy = true;
+                            node.last_health_check = Instant::now();
+                        }
+                    },
+                    Err(_) => {
+                        node.is_healthy = false;
+                        node.last_health_check = Instant::now();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle failover to next healthy node
+    pub fn failover(&mut self) -> Option<&ClusterNode> {
+        if self.last_failover.elapsed() < Duration::from_secs(self.config.failover_timeout as u64) {
+            return None; // Too soon for another failover
+        }
+
+        // Find next healthy node
+        for _ in 0..self.nodes.len() {
+            self.current_node_index = (self.current_node_index + 1) % self.nodes.len();
+            let node = &self.nodes[self.current_node_index];
+            if node.is_healthy {
+                self.last_failover = Instant::now();
+                return Some(node);
+            }
+        }
+
+        None // No healthy nodes available
+    }
+}
+
 /// Connection status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionStatus {
@@ -33,6 +183,7 @@ pub enum ConnectionStatus {
 /// - DNS configuration
 /// - Connection limits and rate limiting
 /// - Connection retry management
+/// - SSL-VPN clustering and RPC farm support
 pub struct VpnClient {
     config: Config,
     auth_client: Option<AuthClient>,
@@ -41,6 +192,9 @@ pub struct VpnClient {
     tunnel_manager: Option<TunnelManager>,
     status: ConnectionStatus,
     server_endpoint: Option<SocketAddr>,
+    
+    /// Cluster manager for SSL-VPN RPC farm support
+    cluster_manager: Option<ClusterManager>,
 
     /// Global connection tracker (shared across all clients if needed)
     connection_tracker: Arc<ConnectionTracker>,
@@ -52,6 +206,12 @@ impl VpnClient {
     /// # Errors
     /// Returns an error if the configuration is invalid or connection tracking setup fails
     pub fn new(config: Config) -> Result<Self> {
+        let cluster_manager = if config.clustering.enabled {
+            Some(ClusterManager::new(config.clustering.clone()))
+        } else {
+            None
+        };
+
         Ok(VpnClient {
             config,
             auth_client: None,
@@ -60,6 +220,7 @@ impl VpnClient {
             tunnel_manager: None,
             status: ConnectionStatus::Disconnected,
             server_endpoint: None,
+            cluster_manager,
             connection_tracker: Arc::new(ConnectionTracker::new()),
         })
     }
@@ -70,6 +231,12 @@ impl VpnClient {
         config: Config,
         tracker: Arc<ConnectionTracker>,
     ) -> Result<Self> {
+        let cluster_manager = if config.clustering.enabled {
+            Some(ClusterManager::new(config.clustering.clone()))
+        } else {
+            None
+        };
+
         Ok(VpnClient {
             config,
             auth_client: None,
@@ -78,6 +245,7 @@ impl VpnClient {
             tunnel_manager: None,
             status: ConnectionStatus::Disconnected,
             server_endpoint: None,
+            cluster_manager,
             connection_tracker: tracker,
         })
     }
@@ -203,6 +371,12 @@ impl VpnClient {
                 if let Some(config) = ip_config {
                     log::info!("🎯 Found IP configuration: Local={}, Gateway={}, Netmask={} ({})",
                              config.local_ip, config.gateway_ip, config.netmask, config.source);
+                    
+                    // CRITICAL FIX: Store the IP config in the auth client for later use
+                    if let Some(auth_client) = &mut self.auth_client {
+                        auth_client.set_ip_config(config);
+                        log::info!("✅ IP configuration extracted and stored for tunnel setup");
+                    }
                 } else {
                     log::warn!("⚠️ No IP configurations found in binary session data");
                     log::debug!("Binary data hex: {}", 
@@ -218,6 +392,9 @@ impl VpnClient {
         // **EXPERIMENTAL**: After successful authentication, we may already have everything needed
         // Let's skip the SSL-VPN handshake and DHCP requests for now and see if we can proceed
         // to tunneling mode directly. The authentication success indicates the server accepts us.
+        
+        // CRITICAL FIX: Set connection status to Connected after successful authentication
+        self.status = ConnectionStatus::Connected;
         log::info!("🔄 Authentication complete - proceeding to tunneling mode...");
         log::info!("📝 Note: Using fallback IPs until DHCP implementation is fixed");
 
@@ -252,9 +429,9 @@ impl VpnClient {
             }
         }
         
-        // Update status to tunneling
-        self.status = ConnectionStatus::Tunneling;
-        log::info!("🌐 Full VPN tunnel established!");
+        // CRITICAL FIX: Keep status as Connected so establish_tunnel() can work
+        // The tunnel establishment will set status to Tunneling when complete
+        log::info!("🌐 Authentication complete - ready for tunnel establishment!");
 
         Ok(())
     }
@@ -384,18 +561,78 @@ impl VpnClient {
             ));
         }
 
+        // Get IP configuration from authentication response
+        log::info!("🔍 establish_tunnel() starting - checking for stored IP config...");
+        let tunnel_config = if let Some(auth_client) = &self.auth_client {
+            log::info!("✅ Auth client exists, checking for IP config...");
+            if let Some(ip_config) = auth_client.get_ip_config() {
+                println!("✅ Using server-assigned IP configuration from auth response!");
+                println!("🎯 Source: {}", ip_config.source);
+                println!("🎯 Assigned IP: {}", ip_config.local_ip);
+                println!("🎯 Gateway IP: {}", ip_config.gateway_ip);
+                println!("🎯 Netmask: {}", ip_config.netmask);
+                
+                // Convert string IPs to Ipv4Addr
+                let local_ip = ip_config.local_ip.parse::<std::net::Ipv4Addr>()
+                    .unwrap_or_else(|e| {
+                        println!("⚠️ Failed to parse local IP '{}': {}, using fallback", ip_config.local_ip, e);
+                        std::net::Ipv4Addr::new(10, 224, 51, 132)
+                    });
+                let gateway_ip = ip_config.gateway_ip.parse::<std::net::Ipv4Addr>()
+                    .unwrap_or_else(|e| {
+                        println!("⚠️ Failed to parse gateway IP '{}': {}, using fallback", ip_config.gateway_ip, e);
+                        std::net::Ipv4Addr::new(10, 224, 51, 1)
+                    });
+                let netmask = ip_config.netmask.parse::<std::net::Ipv4Addr>()
+                    .unwrap_or_else(|e| {
+                        println!("⚠️ Failed to parse netmask '{}': {}, using fallback", ip_config.netmask, e);
+                        std::net::Ipv4Addr::new(255, 255, 255, 0)
+                    });
+                
+                TunnelConfig {
+                    interface_name: "vpnse0".to_string(),
+                    local_ip,
+                    remote_ip: gateway_ip,
+                    netmask,
+                    mtu: 1500,
+                    dns_servers: vec![
+                        std::net::Ipv4Addr::new(8, 8, 8, 8),
+                        std::net::Ipv4Addr::new(8, 8, 4, 4),
+                    ],
+                }
+            } else {
+                log::warn!("⚠️ No IP config found in auth response, using fallback");
+                println!("⚠️ No IP config found in auth response, using fallback");
+                println!("🔧 This means the binary session data parsing needs improvement");
+                TunnelConfig {
+                    interface_name: "vpnse0".to_string(),
+                    local_ip: std::net::Ipv4Addr::new(10, 224, 51, 132),
+                    remote_ip: std::net::Ipv4Addr::new(10, 224, 51, 1),
+                    netmask: std::net::Ipv4Addr::new(255, 255, 255, 0),
+                    mtu: 1500,
+                    dns_servers: vec![
+                        std::net::Ipv4Addr::new(8, 8, 8, 8),
+                        std::net::Ipv4Addr::new(8, 8, 4, 4),
+                    ],
+                }
+            }
+        } else {
+            log::warn!("⚠️ No auth client available, using fallback");
+            println!("⚠️ No auth client available, using fallback");
+            TunnelConfig::default()
+        };
+
         // Create tunnel manager if not exists
         if self.tunnel_manager.is_none() {
-            let tunnel_config = TunnelConfig::default();
             let tunnel_manager = TunnelManager::new(tunnel_config);
             self.tunnel_manager = Some(tunnel_manager);
         }
 
-        // Establish the actual tunnel
+        // Establish the actual tunnel with routing
         if let Some(ref mut tunnel_manager) = self.tunnel_manager {
             tunnel_manager.establish_tunnel()?;
             self.status = ConnectionStatus::Tunneling;
-            println!("VPN tunnel established successfully - all traffic now routed through VPN");
+            println!("✅ VPN tunnel established successfully - all traffic now routed through VPN");
         }
 
         Ok(())
@@ -485,58 +722,9 @@ impl VpnClient {
         // The 403 Forbidden indicates the session has already transitioned
         log::info!("📝 Skipping SSL-VPN handshake - transitioning directly to binary protocol");
         
-        // IMPLEMENT DHCP IP ASSIGNMENT: Request real server-assigned IPs
-        log::info!("🌐 Attempting DHCP IP assignment to get real server IPs...");
-        
-        let tunnel_config = if let Some(auth_client) = &self.auth_client {
-            match auth_client.request_dhcp_ip().await {
-                Ok(config) => {
-                    log::info!("✅ DHCP IP assignment successful!");
-                    log::info!("🎯 Assigned IP: {}", config.local_ip);
-                    log::info!("🎯 Gateway IP: {}", config.remote_ip);
-                    log::info!("🎯 Netmask: {}", config.netmask);
-                    config
-                }
-                Err(e) => {
-                    log::warn!("⚠️ DHCP IP assignment failed: {}", e);
-                    log::info!("📝 Falling back to default tunnel configuration");
-                    crate::tunnel::TunnelConfig {
-                        interface_name: "vpnse0".to_string(),
-                        local_ip: std::net::Ipv4Addr::new(10, 0, 0, 2),
-                        remote_ip: std::net::Ipv4Addr::new(10, 0, 0, 1),
-                        netmask: std::net::Ipv4Addr::new(255, 255, 255, 0),
-                        mtu: 1500,
-                        dns_servers: vec![
-                            std::net::Ipv4Addr::new(8, 8, 8, 8),
-                            std::net::Ipv4Addr::new(8, 8, 4, 4),
-                        ],
-                    }
-                }
-            }
-        } else {
-            log::warn!("⚠️ No auth client available for DHCP IP assignment");
-            log::info!("📝 Using fallback tunnel configuration");
-            crate::tunnel::TunnelConfig {
-                interface_name: "vpnse0".to_string(),
-                local_ip: std::net::Ipv4Addr::new(10, 0, 0, 2),
-                remote_ip: std::net::Ipv4Addr::new(10, 0, 0, 1),
-                netmask: std::net::Ipv4Addr::new(255, 255, 255, 0),
-                mtu: 1500,
-                dns_servers: vec![
-                    std::net::Ipv4Addr::new(8, 8, 8, 8),
-                    std::net::Ipv4Addr::new(8, 8, 4, 4),
-                ],
-            }
-        };
-
-        // Initialize tunnel manager with fallback configuration
-        if self.tunnel_manager.is_none() {
-            use crate::tunnel::TunnelManager;
-            let mut tunnel_manager = TunnelManager::new(tunnel_config);
-            tunnel_manager.establish_tunnel()?;
-            self.tunnel_manager = Some(tunnel_manager);
-            log::info!("🌐 VPN tunnel interface established with fallback IPs");
-        }
+        // NOTE: Tunnel establishment is handled separately via establish_tunnel()
+        // This allows for proper IP configuration from authentication response
+        log::info!("🌐 Authentication complete - ready for tunnel establishment");
         
         Ok(())
     }
@@ -626,6 +814,128 @@ impl VpnClient {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| VpnError::Connection(format!("Failed to create runtime: {}", e)))?;
         rt.block_on(self.connect_async(server, port))
+    }
+
+    /// Update peer count for clustering
+    /// This tracks the number of active peers (not connection attempts)
+    pub fn update_peer_count(&mut self, count: u32) {
+        if let Some(ref mut cluster_manager) = self.cluster_manager {
+            cluster_manager.update_peer_count(count);
+        }
+    }
+
+    /// Get current peer count from cluster
+    pub fn get_peer_count(&self) -> u32 {
+        if let Some(ref cluster_manager) = self.cluster_manager {
+            cluster_manager.get_peer_count()
+        } else {
+            0
+        }
+    }
+
+    /// Get cluster nodes count
+    pub fn get_nodes_count(&self) -> usize {
+        if let Some(ref cluster_manager) = self.cluster_manager {
+            cluster_manager.get_nodes_count()
+        } else {
+            0
+        }
+    }
+
+    /// Check if clustering is enabled and we can add more peers
+    pub fn can_add_peer(&self) -> bool {
+        if let Some(ref cluster_manager) = self.cluster_manager {
+            cluster_manager.can_add_peer()
+        } else {
+            true // No clustering limits
+        }
+    }
+
+    /// Perform health check on cluster nodes
+    pub async fn cluster_health_check(&mut self) -> Result<()> {
+        if let Some(ref mut cluster_manager) = self.cluster_manager {
+            cluster_manager.health_check().await?;
+        }
+        Ok(())
+    }
+
+    /// Get cluster node status information
+    pub fn get_cluster_status(&self) -> Option<Vec<(String, bool, u32)>> {
+        if let Some(ref cluster_manager) = self.cluster_manager {
+            Some(cluster_manager.nodes.iter().map(|node| {
+                (node.address.clone(), node.is_healthy, node.active_connections)
+            }).collect())
+        } else {
+            None
+        }
+    }
+
+    /// Connect to next available cluster node
+    pub async fn connect_to_cluster(&mut self) -> Result<()> {
+        if !self.config.clustering.enabled {
+            return Err(VpnError::Configuration(
+                "Clustering is not enabled".to_string(),
+            ));
+        }
+
+        if let Some(ref mut cluster_manager) = self.cluster_manager {
+            if let Some(node) = cluster_manager.get_next_node() {
+                if let Some(endpoint) = node.endpoint {
+                    self.server_endpoint = Some(endpoint);
+                    node.active_connections += 1;
+                    cluster_manager.update_peer_count(cluster_manager.get_peer_count() + 1);
+                    
+                    // Use the endpoint to connect
+                    return self.connect_async(&endpoint.ip().to_string(), endpoint.port()).await;
+                } else {
+                    // Try to resolve the address
+                    match node.address.to_socket_addrs() {
+                        Ok(mut addrs) => {
+                            if let Some(addr) = addrs.next() {
+                                node.endpoint = Some(addr);
+                                self.server_endpoint = Some(addr);
+                                node.active_connections += 1;
+                                cluster_manager.update_peer_count(cluster_manager.get_peer_count() + 1);
+                                
+                                return self.connect_async(&addr.ip().to_string(), addr.port()).await;
+                            }
+                        },
+                        Err(e) => {
+                            node.is_healthy = false;
+                            return Err(VpnError::Connection(
+                                format!("Failed to resolve cluster node {}: {}", node.address, e)
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(VpnError::Connection(
+            "No available cluster nodes".to_string(),
+        ))
+    }
+
+    /// Handle failover to next healthy cluster node
+    pub async fn handle_cluster_failover(&mut self) -> Result<()> {
+        if !self.config.clustering.enabled || !self.config.clustering.enable_failover {
+            return Err(VpnError::Configuration(
+                "Clustering failover is not enabled".to_string(),
+            ));
+        }
+
+        if let Some(ref mut cluster_manager) = self.cluster_manager {
+            if let Some(node) = cluster_manager.failover() {
+                if let Some(endpoint) = node.endpoint {
+                    self.server_endpoint = Some(endpoint);
+                    return self.connect_async(&endpoint.ip().to_string(), endpoint.port()).await;
+                }
+            }
+        }
+
+        Err(VpnError::Connection(
+            "No healthy nodes available for failover".to_string(),
+        ))
     }
 }
 

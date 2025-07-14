@@ -48,6 +48,8 @@ ipnet = "2.9"
 tun = "0.6"
 # IP address detection
 public-ip = "0.2"
+# Random number generation for load balancing
+rand = "0.8"
 
 # UUID generation for sessions
 uuid = { version = "1.0", features = ["v4"] }
@@ -101,6 +103,10 @@ harness = false
 [[bin]]
 name = "rvpnse-client"
 path = "src/bin/client.rs"
+
+[[bin]]
+name = "test_clustering"
+path = "test_clustering.rs"
 
 [features]
 # Default to ring for most platforms with basic functionality
