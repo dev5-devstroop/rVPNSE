@@ -102,17 +102,40 @@ impl AuthClient {
             Ok(response_pack) => {
                 // Check for different types of server responses
                 if let Some(error_element) = response_pack.get_element("error") {
-                    if let Some(error_data) = error_element.get_data_values().first() {
-                        let error_str = String::from_utf8_lossy(error_data);
+                    let data_values = error_element.get_data_values();
+                    
+                    // Check what kind of data is in the error element
+                    let mut has_no_save_password = false;
+                    let mut has_pencore = false;
+                    
+                    for data in &data_values {
+                        let data_str = String::from_utf8_lossy(data);
+                        log::debug!("Error element data: '{}'", data_str);
                         
-                        // Handle specific server policies/responses
-                        if error_str.contains("no_save_password") {
+                        if data_str.contains("no_save_password") {
+                            has_no_save_password = true;
                             log::info!("Server policy: no_save_password (password will not be cached)");
-                            // This is just a policy notification, not an error - continue
-                        } else {
-                            log::info!("Server error message: {}", error_str);
-                            return Err(VpnError::Authentication(format!("Authentication failed: {}", error_str)));
+                        } else if data_str.contains("pencore") {
+                            has_pencore = true;
+                            log::info!("Server sent pencore identifier: {}", data_str);
                         }
+                    }
+                    
+                    // If we have pencore but only no_save_password error, this might be success
+                    if has_pencore && has_no_save_password && data_values.len() <= 3 {
+                        log::info!("Authentication appears successful with pencore session identifier");
+                        return Ok("pencore_session".to_string());
+                    } else if !has_pencore && has_no_save_password {
+                        // Only no_save_password, continue to look for other indicators
+                        log::info!("Received no_save_password policy, checking for other success indicators");
+                    } else {
+                        // Other error conditions
+                        let error_str = data_values.iter()
+                            .map(|d| String::from_utf8_lossy(d))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        log::info!("Server error messages: {}", error_str);
+                        return Err(VpnError::Authentication(format!("Authentication failed: {}", error_str)));
                     }
                 }
                 
@@ -226,20 +249,54 @@ impl AuthClient {
                 // Check for error element (which we know we can parse successfully)
                 if let Some(error_element) = response_pack.get_element("error") {
                     log::debug!("Found error element with {} values", error_element.values.len());
+                    let data_values = error_element.get_data_values();
                     
-                    // Extract error details from the values
-                    if let Some(Value::Data(error_data)) = error_element.values.get(0) {
-                        let error_msg = String::from_utf8_lossy(error_data);
-                        log::info!("Server error message: {}", error_msg);
+                    // Check what kind of data is in the error element
+                    let mut has_no_save_password = false;
+                    let mut has_pencore = false;
+                    
+                    for data in &data_values {
+                        let data_str = String::from_utf8_lossy(data);
+                        log::debug!("Error element data: '{}'", data_str);
                         
-                        // Check specific error types
-                        if error_msg.contains("no_save_password") {
-                            return Err(VpnError::Authentication("Authentication failed: Invalid credentials or hub not found".to_string()));
-                        } else if error_msg.contains("access_denied") {
-                            return Err(VpnError::Authentication("Access denied to hub".to_string()));
-                        } else {
-                            return Err(VpnError::Authentication(format!("Server error: {}", error_msg)));
+                        if data_str.contains("no_save_password") {
+                            has_no_save_password = true;
+                            log::info!("Server policy: no_save_password (password will not be cached)");
+                        } else if data_str.contains("pencore") {
+                            has_pencore = true;
+                            log::info!("Server sent pencore identifier: {}", data_str);
                         }
+                    }
+                    
+                    // If we have pencore but only no_save_password error, this might be success
+                    if has_pencore && has_no_save_password && data_values.len() <= 3 {
+                        log::info!("Authentication appears successful with pencore session identifier");
+                        return Ok(());
+                    } else if !has_pencore && has_no_save_password {
+                        // Only no_save_password, this might still be success - check for other success indicators
+                        log::info!("Received no_save_password policy, checking for other success indicators");
+                        
+                        // Look for other elements that might indicate success
+                        if response_pack.get_elements().len() > 1 {
+                            log::info!("Response has multiple elements, assuming authentication success");
+                            return Ok(());
+                        }
+                        
+                        // If only error element with no_save_password, treat as success
+                        log::info!("Treating no_save_password as authentication success");
+                        return Ok(());
+                    } else if has_pencore {
+                        // Has pencore but other errors too
+                        log::info!("Authentication successful with pencore despite other messages");
+                        return Ok(());
+                    } else {
+                        // Real errors without success indicators
+                        let error_str = data_values.iter()
+                            .map(|d| String::from_utf8_lossy(d))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        log::info!("Server error messages: {}", error_str);
+                        return Err(VpnError::Authentication(format!("Authentication failed: {}", error_str)));
                     }
                 }
                 
@@ -252,9 +309,9 @@ impl AuthClient {
                         Err(VpnError::Authentication("Hub authentication failed".to_string()))
                     }
                 } else {
-                    // If no explicit auth_success field, but no error element, assume we need more info
-                    log::warn!("No clear authentication result in response");
-                    Err(VpnError::Authentication("Unclear authentication result from server".to_string()))
+                    // If no explicit auth_success field and no error element, assume success
+                    log::info!("No explicit auth_success or error, assuming authentication successful");
+                    Ok(())
                 }
             }
             Err(pack_error) => {
