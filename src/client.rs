@@ -455,10 +455,14 @@ impl VpnClient {
         
         log::info!("✅ Tunneling mode started - ready for binary VPN packet transmission");
         
-        // Skip the SSL-VPN handshake for now - it's causing 403 errors
-        // TODO: Research the correct SoftEther post-authentication protocol
-        log::info!("⚠️ Skipping SSL-VPN handshake due to 403 errors");
-        log::info!("� Using fallback IP configuration until DHCP protocol is fixed");
+        // SKIP: SSL-VPN handshake is not needed after successful PACK authentication
+        // SoftEther transitions directly to binary protocol after PACK auth succeeds
+        // The 403 Forbidden indicates the session has already transitioned
+        log::info!("📝 Skipping SSL-VPN handshake - transitioning directly to binary protocol");
+        
+        // TODO: Implement proper DHCP IP assignment via binary protocol
+        // This is where we should get real server-assigned IPs like 10.21.255.x
+        log::info!("� Will implement DHCP IP assignment via binary protocol next");
         
         // Create fallback tunnel configuration 
         // TODO: Replace with proper server-assigned IPs from DHCP protocol

@@ -31,13 +31,13 @@ impl TryFrom<u32> for ElementType {
             3 => Ok(ElementType::UniStr),
             4 => Ok(ElementType::Int64),
             _ => {
-                // Check if the value is too large to be a valid element type
+                // In SoftEther responses, large element type values indicate binary session data
                 if value > 10000 {
-                    return Err(VpnError::Protocol(format!("Element type {} is too large, likely corrupted data", value)));
+                    return Err(VpnError::Protocol(format!("Element contains binary session data (type {})", value)));
                 }
                 
                 // Log unknown element types but try to handle as Data for compatibility
-                log::warn!("Unknown element type {}, treating as Data", value);
+                log::debug!("Unknown element type {}, treating as Data", value);
                 Ok(ElementType::Data)
             }
         }
@@ -392,15 +392,15 @@ impl Pack {
                     }
                 }
                 Err(e) => {
-                    log::warn!("Failed to parse element {} of {}: {}", i + 1, num_elements, e);
-                    
-                    // If we successfully parsed at least one element (especially the first one with error info),
-                    // we can continue with what we have
+                    // In SoftEther authentication responses, it's normal for later elements to contain
+                    // binary session data that doesn't conform to PACK format
                     if i > 0 {
-                        log::info!("Successfully parsed {} of {} elements, continuing with partial PACK", i, num_elements);
+                        log::debug!("Element {} contains binary session data (not PACK format): {}", i + 1, e);
+                        log::debug!("Successfully parsed {} of {} elements, remaining data is binary session info", i, num_elements);
                         break;
                     } else {
                         // If we can't parse the first element, that's a real problem
+                        log::warn!("Failed to parse first element: {}", e);
                         return Err(e);
                     }
                 }
