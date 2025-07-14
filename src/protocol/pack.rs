@@ -159,6 +159,14 @@ impl Element {
         
         Ok(element_type)
     }
+    
+    /// Get all data values from this element
+    pub fn get_data_values(&self) -> Vec<&Vec<u8>> {
+        self.values.iter().filter_map(|v| match v {
+            Value::Data(data) => Some(data),
+            _ => None,
+        }).collect()
+    }
 }
 
 /// PACK structure containing elements
@@ -268,6 +276,11 @@ impl Pack {
                 Value::Str(s) | Value::UniStr(s) => Some(s),
                 _ => None,
             })
+    }
+
+    /// Get all elements as a HashMap for easy iteration
+    pub fn get_elements(&self) -> std::collections::HashMap<String, &Element> {
+        self.elements.iter().map(|e| (e.name.clone(), e)).collect()
     }
 
     /// Serialize PACK to binary format (compatible with SoftEther)

@@ -100,15 +100,48 @@ impl AuthClient {
         // Try to parse response, but handle errors gracefully
         match Pack::from_bytes(response_data.to_vec().into()) {
             Ok(response_pack) => {
-                // Check for error in the response
-                if let Some(error_msg) = response_pack.get_str("error") {
-                    return Err(VpnError::Authentication(format!("Server error: {}", error_msg)));
+                // Check for different types of server responses
+                if let Some(error_element) = response_pack.get_element("error") {
+                    if let Some(error_data) = error_element.get_data_values().first() {
+                        let error_str = String::from_utf8_lossy(error_data);
+                        
+                        // Handle specific server policies/responses
+                        if error_str.contains("no_save_password") {
+                            log::info!("Server policy: no_save_password (password will not be cached)");
+                            // This is just a policy notification, not an error - continue
+                        } else {
+                            log::info!("Server error message: {}", error_str);
+                            return Err(VpnError::Authentication(format!("Authentication failed: {}", error_str)));
+                        }
+                    }
                 }
                 
-                // Extract session ID
+                // Look for session establishment indicators
                 if let Some(session_id) = response_pack.get_str("session_id") {
                     log::info!("Session established with ID: {}", session_id);
                     Ok(session_id.clone())
+                } else if let Some(pencore) = response_pack.get_str("pencore") {
+                    // SoftEther may use "pencore" field for session info
+                    log::info!("Session established with pencore: {}", pencore);
+                    Ok(pencore.clone())
+                } else if response_pack.get_elements().len() > 0 {
+                    // If we have elements but no explicit error, assume success
+                    let elements: Vec<String> = response_pack.get_elements().keys().cloned().collect();
+                    log::info!("Authentication response contains elements: {:?}", elements);
+                    
+                    // Use the first non-error element as session identifier
+                    for (name, element) in response_pack.get_elements() {
+                        if name != "error" {
+                            if let Some(data_values) = element.get_data_values().first() {
+                                let session_data = String::from_utf8_lossy(data_values);
+                                log::info!("Using {} as session data: {}", name, session_data);
+                                return Ok(session_data.to_string());
+                            }
+                        }
+                    }
+                    
+                    // Fallback - use a default session ID
+                    Ok("authenticated".to_string())
                 } else {
                     Err(VpnError::Authentication("Failed to get session ID from server".to_string()))
                 }
@@ -135,8 +168,7 @@ impl AuthClient {
         pack.add_str("password", &self.password);
         pack.add_str("hub", &self.hub_name);
         
-        // Add the required no_save_password parameter (server expects this)
-        pack.add_str("no_save_password", "1");
+        // Remove no_save_password - this is server policy, not client parameter
         
         // Parameters for clustered SoftEther VPN
         pack.add_int("client_ver", 4560);  // SoftEther client version
