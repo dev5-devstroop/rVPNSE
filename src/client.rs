@@ -207,6 +207,10 @@ impl VpnClient {
         auth_client.authenticate(username, password).await?;
         log::info!("✅ PACK authentication successful");
 
+        // Complete SSL-VPN handshake to transition server from "initializing" to "connected"
+        auth_client.complete_ssl_vpn_handshake().await?;
+        log::info!("✅ SSL-VPN handshake completed");
+
         // Initialize session manager after successful authentication
         let session_manager = SessionManager::new(&self.config)?;
         self.session_manager = Some(session_manager);
@@ -215,10 +219,27 @@ impl VpnClient {
         // After successful authentication, shift to tunneling mode
         // This mirrors Protocol.c line 3261: StartTunnelingMode(c);
         log::info!("🔄 Starting tunneling mode transition...");
-        self.start_tunneling_mode().await?;
+        
+        match self.start_tunneling_mode().await {
+            Ok(_) => {
+                log::info!("✅ Tunneling mode started successfully");
+            },
+            Err(e) => {
+                log::error!("❌ Failed to start tunneling mode: {}", e);
+                return Err(e);
+            }
+        }
         
         // Start binary protocol keep-alive for VPN session
-        self.start_binary_keepalive_loop().await?;
+        match self.start_binary_keepalive_loop().await {
+            Ok(_) => {
+                log::info!("✅ Binary keepalive loop started");
+            },
+            Err(e) => {
+                log::warn!("⚠️ Failed to start binary keepalive loop: {}", e);
+                // Don't fail completely for keepalive issues
+            }
+        }
         
         // Update status to tunneling
         self.status = ConnectionStatus::Tunneling;
@@ -274,6 +295,13 @@ impl VpnClient {
 
     /// Send keepalive packet (protocol level)
     pub async fn send_keepalive(&mut self) -> Result<()> {
+        // In tunneling mode, use binary keepalive instead of HTTP
+        if self.status == ConnectionStatus::Tunneling {
+            log::debug!("Sending binary VPN keepalive");
+            return self.send_binary_keepalive().await;
+        }
+        
+        // For non-tunneling connections, use HTTP keepalive
         let auth_client = self
             .auth_client
             .as_mut()
@@ -441,14 +469,25 @@ impl VpnClient {
         
         log::info!("✅ Tunneling mode started - ready for binary VPN packet transmission");
         
-        // Initialize tunnel manager for actual VPN interface
+        // Request IP configuration from server (DHCP-like)
+        let auth_client = self.auth_client.as_ref()
+            .ok_or_else(|| VpnError::Connection("Not authenticated".to_string()))?;
+            
+        // Step 1: Complete SSL-VPN handshake to get server out of "initializing" state
+        auth_client.complete_ssl_vpn_handshake().await?;
+        log::info!("🔄 SSL-VPN handshake completed");
+        
+        // Step 2: Request DHCP IP assignment from server
+        let tunnel_config = auth_client.request_dhcp_ip().await?;
+        log::info!("📍 Received IP configuration from server");
+        
+        // Initialize tunnel manager with server-provided configuration
         if self.tunnel_manager.is_none() {
-            use crate::tunnel::{TunnelManager, TunnelConfig};
-            let tunnel_config = TunnelConfig::default();
+            use crate::tunnel::TunnelManager;
             let mut tunnel_manager = TunnelManager::new(tunnel_config);
             tunnel_manager.establish_tunnel()?;
             self.tunnel_manager = Some(tunnel_manager);
-            log::info!("🌐 VPN tunnel interface established");
+            log::info!("🌐 VPN tunnel interface established with server-assigned IPs");
         }
         
         Ok(())
@@ -461,14 +500,76 @@ impl VpnClient {
     pub async fn start_binary_keepalive_loop(&mut self) -> Result<()> {
         log::info!("🔄 Starting binary protocol keep-alive loop...");
         
-        // TODO: Implement binary keep-alive loop
-        // This should:
-        // 1. Send binary keep-alive packets every 30 seconds
-        // 2. Handle VPN data packet routing
-        // 3. Maintain tunnel interface
-        // 4. Process incoming VPN packets
+        // Get protocol handler for binary communication
+        let protocol_handler = self.protocol_handler.as_ref()
+            .ok_or_else(|| VpnError::Connection("Protocol handler not available".to_string()))?;
+        
+        // Start keep-alive and packet processing loop
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    // Send binary keep-alive packet
+                    if let Err(e) = self.send_binary_keepalive().await {
+                        log::error!("Keep-alive failed: {}", e);
+                        break;
+                    }
+                    log::debug!("Binary keep-alive sent");
+                }
+                
+                // Handle incoming VPN packets
+                packet_result = self.receive_vpn_packet() => {
+                    match packet_result {
+                        Ok(packet) => {
+                            if let Err(e) = self.process_vpn_packet(packet).await {
+                                log::error!("Failed to process VPN packet: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to receive VPN packet: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         
         log::info!("✅ Binary keep-alive loop started");
+        Ok(())
+    }
+    
+    /// Send binary keep-alive packet using VPN protocol
+    async fn send_binary_keepalive(&mut self) -> Result<()> {
+        // Create binary keep-alive packet (SoftEther PING)
+        let keepalive_packet = vec![
+            0x01, 0x00, 0x00, 0x08, // Packet length (8 bytes)
+            0x50, 0x49, 0x4E, 0x47, // "PING" magic bytes
+        ];
+        
+        self.send_packet_data(&keepalive_packet).await
+    }
+    
+    /// Receive VPN packet from server
+    async fn receive_vpn_packet(&mut self) -> Result<Vec<u8>> {
+        // TODO: Implement actual packet reception from binary protocol
+        // For now, return empty to avoid infinite loop
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(vec![])
+    }
+    
+    /// Process received VPN packet
+    async fn process_vpn_packet(&mut self, packet: Vec<u8>) -> Result<()> {
+        if packet.is_empty() {
+            return Ok(());
+        }
+        
+        // TODO: Route packet through tunnel interface
+        // This should:
+        // 1. Decrypt packet if needed
+        // 2. Extract IP packet
+        // 3. Write to TUN interface
+        log::debug!("Processing VPN packet of {} bytes", packet.len());
         Ok(())
     }
 

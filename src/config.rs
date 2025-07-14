@@ -366,6 +366,7 @@ mod tests {
     fn test_config_parsing() {
         let config_toml = r#"
 [server]
+address = "62.24.65.211"
 hostname = "vpn.example.com"
 port = 443
 hub = "VPN"
@@ -393,7 +394,8 @@ json_format = false
 "#;
 
         let config: Config = config_toml.parse().unwrap();
-        assert_eq!(config.server.hostname, "vpn.example.com");
+        assert_eq!(config.server.address, "62.24.65.211");
+        assert_eq!(config.server.hostname, Some("vpn.example.com".to_string()));
         assert_eq!(config.server.port, 443);
         assert_eq!(config.auth.method, AuthMethod::Password);
         assert_eq!(config.auth.username, Some("testuser".to_string()));
@@ -408,12 +410,12 @@ json_format = false
         // Valid config should pass
         assert!(config.validate().is_ok());
         
-        // Empty hostname should fail
-        config.server.hostname = String::new();
+        // Empty address should fail
+        config.server.address = String::new();
         assert!(config.validate().is_err());
         
-        // Reset hostname and test zero port
-        config.server.hostname = "test.com".to_string();
+        // Reset address and test zero port
+        config.server.address = "127.0.0.1".to_string();
         config.server.port = 0;
         assert!(config.validate().is_err());
     }
@@ -421,7 +423,8 @@ json_format = false
     #[test]
     fn test_config_defaults() {
         let config = Config::default_test();
-        assert_eq!(config.server.hostname, "localhost");
+        assert_eq!(config.server.address, "127.0.0.1");
+        assert_eq!(config.server.hostname, Some("localhost".to_string()));
         assert_eq!(config.server.port, 443);
         assert!(!config.server.verify_certificate); // Disabled for testing
         assert_eq!(config.auth.method, AuthMethod::Password);
@@ -439,6 +442,7 @@ json_format = false
         
         // Parse back to ensure round-trip works
         let parsed_config: Config = toml_str.parse().unwrap();
+        assert_eq!(config.server.address, parsed_config.server.address);
         assert_eq!(config.server.hostname, parsed_config.server.hostname);
     }
 }

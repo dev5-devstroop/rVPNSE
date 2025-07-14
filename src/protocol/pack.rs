@@ -30,7 +30,16 @@ impl TryFrom<u32> for ElementType {
             2 => Ok(ElementType::Str),
             3 => Ok(ElementType::UniStr),
             4 => Ok(ElementType::Int64),
-            _ => Err(VpnError::Protocol(format!("Invalid element type: {}", value))),
+            _ => {
+                // Check if the value is too large to be a valid element type
+                if value > 10000 {
+                    return Err(VpnError::Protocol(format!("Element type {} is too large, likely corrupted data", value)));
+                }
+                
+                // Log unknown element types but try to handle as Data for compatibility
+                log::warn!("Unknown element type {}, treating as Data", value);
+                Ok(ElementType::Data)
+            }
         }
     }
 }
@@ -412,8 +421,15 @@ impl Pack {
         }
 
         // Read element name length (big-endian, includes null terminator)
-        let name_len = data.get_u32() as usize;
-        log::debug!("Element name length: {} (includes null terminator), consumed 4 bytes, {} remaining", name_len, data.len());
+        let name_len_raw = data.get_u32();
+        log::debug!("Element name length raw: {} (includes null terminator), consumed 4 bytes, {} remaining", name_len_raw, data.len());
+        
+        // Safety check: reject unreasonably large name lengths
+        if name_len_raw > 1000 { // 1KB limit for element names
+            return Err(VpnError::Protocol(format!("Element name length {} is unreasonably large", name_len_raw)));
+        }
+        
+        let name_len = name_len_raw as usize;
         
         if name_len == 0 {
             return Err(VpnError::Protocol("Element name length is zero".to_string()));
@@ -487,6 +503,13 @@ impl Pack {
 
             let value_len_raw = data.get_u32();
             log::debug!("Value {} length raw: {}, consumed 4 bytes, {} remaining", j, value_len_raw, data.len());
+            
+            // Safety check: reject unreasonably large values to prevent memory allocation attacks
+            if value_len_raw > 10_000_000 { // 10MB limit per value
+                log::error!("Value {} length {} is unreasonably large, likely corrupted data", j, value_len_raw);
+                return Err(VpnError::Protocol(format!("Value length {} exceeds safety limit", value_len_raw)));
+            }
+            
             let value_len = value_len_raw as usize;
             log::debug!("Value {} length: {}", j, value_len);
             

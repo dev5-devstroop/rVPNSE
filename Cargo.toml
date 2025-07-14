@@ -42,6 +42,8 @@ url = "2.5"
 base64 = "0.22"
 # Network interface management
 ipnet = "2.9"
+# TUN/TAP interface creation and management
+tun = "0.6"
 # IP address detection
 public-ip = "0.2"
 

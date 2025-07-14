@@ -11,13 +11,15 @@ rVPNSE provides a robust, cross-platform foundation for building VPN application
 
 ## ✨ Key Features
 
-- 🦀 **Production-ready Rust** - Zero warnings, 100% test coverage, strict quality standards
+- 🦀 **Production-ready Rust** - Zero warnings, comprehensive testing, strict quality standards
 - 🌍 **Cross-platform** - Windows, macOS, Linux, Android, iOS support
 - 🔒 **Secure by default** - TLS encryption, certificate validation, secure session management
 - 🚀 **High performance** - Async/await, zero-copy operations, optimized networking
 - 🔧 **Easy integration** - C FFI interface for seamless language interop
 - 📱 **Mobile-optimized** - Battery-efficient, network-aware implementations
-- ⚡ **Connection management** - Rate limiting, retry logic, concurrent connection controls
+- ⚡ **Advanced networking** - Direct IP connections, clustering support, connection pooling
+- 🎯 **SoftEther clustering** - Full support for clustered SoftEther VPN servers
+- 🛡️ **Robust authentication** - Password, certificate, and anonymous authentication methods
 
 ## 🚀 Quick Start
 
@@ -29,8 +31,11 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
 git clone https://github.com/rVPNSE/rVPNSE.git
-cd rvpnse
-python3 tools/build.py --mode release
+cd rVPNSE
+cargo build --release
+
+# Run the client
+cargo run --bin rvpnse-client
 ```
 
 ### 2. Basic Usage
@@ -41,7 +46,7 @@ python3 tools/build.py --mode release
 int main() {
     // Create configuration
     struct VpnConfig* config = rvpnse_config_new();
-    rvpnse_config_load_from_file(config, "vpn.toml");
+    rvpnse_config_load_from_file(config, "config.toml");
     
     // Create and connect client
     struct VpnClient* client = rvpnse_client_new(config);
@@ -62,30 +67,55 @@ int main() {
 
 ### 3. Configuration
 
-Create a `vpn.toml` configuration file:
+Create a `config.toml` configuration file:
 
 ```toml
 [server]
-host = "vpn.example.com"
-port = 443
+# Server IP address (mandatory)
+address = "62.24.65.211"
+# Server hostname for Host header (optional) 
+hostname = "worxvpn.662.cloud"
+port = 992
+hub = "VPN"
+use_ssl = true
+verify_certificate = false
+timeout = 30
+keepalive_interval = 60
 
-[connection_limits]
-max_concurrent_connections = 5
-max_connections_per_minute = 10
-max_retry_attempts = 3
-retry_delay = 5
-
-[authentication]
+[auth]
+method = "password"
 username = "your_username"
 password = "your_password"
-hub_name = "VPN"
+# Optional certificate-based authentication
+# client_cert = "path/to/client.crt"
+# client_key = "path/to/client.key"
+# ca_cert = "path/to/ca.crt"
 
-[connection]
-timeout_seconds = 30
-keepalive_interval = 10
+[connection_limits]
+max_connections = 10
+enable_pooling = true
+pool_size = 5
+idle_timeout = 300
+max_lifetime = 3600
+retry_attempts = 3
+retry_delay = 1000
+backoff_factor = 2.0
+max_retry_delay = 30
 
-[tls]
-verify_certificate = true
+[network]
+enable_ipv6 = false
+user_agent = "rVPNSE/0.1.0"
+enable_http2 = true
+tcp_keepalive = true
+tcp_nodelay = true
+# bind_address = "192.168.1.100"
+# proxy_url = "http://proxy.example.com:8080"
+
+[logging]
+level = "info"
+colored = true
+json_format = false
+# file = "rvpnse.log"
 ```
 
 ## 📦 Integration
@@ -121,20 +151,23 @@ graph TB
     subgraph "rVPNSE Core"
         H[C FFI Interface]
         I[VPN Client]
-        J[Connection Manager]
+        J[Authentication Manager]
         K[SoftEther Protocol]
-        L[Connection Limits]
+        L[Connection Pooling]
+        M[PACK Protocol Parser]
+        N[Clustering Support]
     end
     
     subgraph "Platform Integration"
-        M[TUN/TAP Interface]
-        N[Network Stack]
-        O[Certificate Store]
+        O[TUN/TAP Interface]
+        P[Network Stack]
+        Q[Certificate Store]
     end
     
     subgraph "External"
-        P[SoftEther VPN Server]
-        Q[DNS Servers]
+        R[SoftEther VPN Server]
+        S[Clustering RPC]
+        T[DNS Servers]
     end
     
     A --> E
@@ -150,16 +183,19 @@ graph TB
     I --> J
     I --> K
     I --> L
+    I --> M
+    I --> N
     
-    J --> M
-    J --> N
     J --> O
+    J --> P
+    J --> Q
     
-    K --> P
-    N --> Q
+    K --> R
+    N --> S
+    P --> T
     
     style I fill:#99ccff
-    style L fill:#ffcc99
+    style N fill:#ffcc99
     style H fill:#ff9999
 ```
 
@@ -236,17 +272,26 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for deta
 ```bash
 # Clone the repository
 git clone https://github.com/rVPNSE/rVPNSE.git
-cd rvpnse
+cd rVPNSE
 
 # Install dependencies
 rustup component add clippy rustfmt
 
+# Build the project
+cargo build
+
 # Run tests
 cargo test
+
+# Run the client with debug logging
+RUST_LOG=debug cargo run --bin rvpnse-client
 
 # Check code quality
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
+
+# Run benchmarks
+cargo bench
 ```
 
 ## 📄 License
