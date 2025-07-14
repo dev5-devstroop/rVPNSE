@@ -17,6 +17,7 @@ pub struct AuthClient {
     hub_name: String,
     username: String,
     password: String,
+    verify_certificate: bool,
     stream: Option<TcpStream>,
     session_id: Option<String>,
     is_authenticated: bool,
@@ -30,6 +31,7 @@ impl AuthClient {
         hub_name: String,
         username: String,
         password: String,
+        verify_certificate: bool,
     ) -> Result<Self, VpnError> {
         let addr: SocketAddr = server_address.parse()
             .map_err(|e| VpnError::Config(format!("Invalid server address: {}", e)))?;
@@ -37,13 +39,14 @@ impl AuthClient {
         let server_endpoint = format!("https://{}:{}", addr.ip(), addr.port());
         
         Ok(Self {
-            watermark_client: WatermarkClient::new(addr, hostname, false)?,
+            watermark_client: WatermarkClient::new(addr, hostname, verify_certificate)?,
             http_client: HttpClient::new(),
             server_address,
             server_endpoint,
             hub_name,
             username,
             password,
+            verify_certificate,
             stream: None,
             session_id: None,
             is_authenticated: false,
@@ -635,24 +638,60 @@ impl AuthClient {
         log::debug!("📦 SSL-VPN packet (first 100 bytes): {:02x?}", 
             &data[..std::cmp::min(100, data.len())]);
         
-        let mut request = self.watermark_client.http_client
+        log::info!("📡 Sending SSL-VPN handshake to server...");
+        log::debug!("🔗 Request details:");
+        log::debug!("  URL: {}", url);
+        log::debug!("  Method: POST");
+        log::debug!("  Content-Type: application/octet-stream");
+        log::debug!("  Content-Length: {}", data.len());
+        log::debug!("  Connection: Keep-Alive");
+        if let Some(hostname) = &self.watermark_client.hostname {
+            log::debug!("  Host: {}", hostname);
+        }
+        
+        // CRITICAL FIX: Create a fresh HTTP client for SSL-VPN handshake
+        // The original client might have connection state issues after authentication
+        log::debug!("🔄 Creating fresh HTTP client for SSL-VPN handshake...");
+        let mut fresh_client_builder = reqwest::Client::builder()
+            .user_agent("SoftEther VPN Client");
+
+        // Match the TLS verification settings from the original client
+        if !self.verify_certificate {
+            fresh_client_builder = fresh_client_builder.danger_accept_invalid_certs(true);
+            log::debug!("🔓 SSL certificate verification disabled");
+        } else {
+            log::debug!("🔒 SSL certificate verification enabled");
+        }
+
+        let fresh_http_client = fresh_client_builder.build()
+            .map_err(|e| VpnError::Network(format!("Failed to create fresh HTTP client: {}", e)))?;
+        
+        let mut fresh_request = fresh_http_client
             .post(&url)
             .header("Content-Type", "application/octet-stream")
             .header("Content-Length", &data.len().to_string())
             .header("Connection", "Keep-Alive");
             
         if let Some(hostname) = &self.watermark_client.hostname {
-            request = request.header("Host", hostname);
-            log::debug!("🏠 Using hostname: {}", hostname);
+            fresh_request = fresh_request.header("Host", hostname);
         }
         
-        log::info!("📡 Sending SSL-VPN handshake to server...");
-        let response = request
+        let response = fresh_request
             .body(data)
             .send()
             .await
             .map_err(|e| {
                 log::error!("❌ SSL-VPN handshake failed to send: {}", e);
+                log::error!("🔍 Error details: {:?}", e);
+                if e.is_connect() {
+                    log::error!("🌐 Connection error - cannot reach server");
+                } else if e.is_timeout() {
+                    log::error!("⏰ Timeout error - server not responding");
+                } else if e.is_request() {
+                    log::error!("📤 Request error - malformed request");
+                } else {
+                    log::error!("❓ Other network error");
+                }
                 VpnError::Network(format!("Failed to send SSL-VPN start: {}", e))
             })?;
 
@@ -966,7 +1005,7 @@ pub async fn authenticate_connection(
         .map_err(|e| VpnError::Network(format!("Failed to connect to server: {}", e)))?;
     
     // Create auth client and authenticate
-    let mut auth_client = AuthClient::new(server_address, None, hub_name, username, password)?;
+    let mut auth_client = AuthClient::new(server_address, None, hub_name, username, password, false)?;
     let session_id = auth_client.authenticate_with_stream(&mut stream).await?;
     
     Ok((stream, session_id))
