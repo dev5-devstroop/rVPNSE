@@ -37,7 +37,10 @@ async fn main() -> Result<()> {
     // Load configuration
     let config = load_config(config_path).await?;
     info!("Loaded configuration from: {}", config_path);
-    debug!("Server: {}:{}", config.server.hostname, config.server.port);
+    debug!("Server: {}:{}", config.server.address, config.server.port);
+    if let Some(hostname) = &config.server.hostname {
+        debug!("Host header: {}", hostname);
+    }
     debug!("Hub: {}", config.server.hub);
 
     // Create VPN client
@@ -49,10 +52,10 @@ async fn main() -> Result<()> {
 
     // Connect to VPN server
     info!("Connecting to VPN server...");
-    let server_hostname = &config.server.hostname;
+    let server_address = &config.server.address;
     let server_port = config.server.port;
     
-    if let Err(e) = client.connect_async(server_hostname, server_port).await {
+    if let Err(e) = client.connect_async(server_address, server_port).await {
         error!("Failed to connect to VPN server: {}", e);
         process::exit(1);
     }
@@ -164,7 +167,8 @@ async fn load_config(config_path: &str) -> Result<Config> {
 fn create_default_config() -> Config {
     Config {
         server: ServerConfig {
-            hostname: "vpn.example.com".to_string(),
+            address: "127.0.0.1".to_string(),
+            hostname: Some("vpn.example.com".to_string()),
             port: 443,
             hub: "DEFAULT".to_string(),
             use_ssl: true,
@@ -261,10 +265,10 @@ async fn keepalive_loop(client: std::sync::Arc<tokio::sync::Mutex<VpnClient>>, c
             warn!("Connection lost, attempting to reconnect...");
             
             // Try to reconnect
-            let server_hostname = config.server.hostname.clone();
+            let server_address = config.server.address.clone();
             let server_port = config.server.port;
             
-            match timeout(Duration::from_secs(30), client.connect_async(&server_hostname, server_port)).await {
+            match timeout(Duration::from_secs(30), client.connect_async(&server_address, server_port)).await {
                 Ok(Ok(())) => {
                     info!("Reconnected successfully");
                     

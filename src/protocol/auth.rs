@@ -12,6 +12,7 @@ pub struct AuthClient {
     watermark_client: WatermarkClient,
     http_client: HttpClient,
     server_address: String,
+    server_endpoint: String,  // Full endpoint with port
     hub_name: String,
     username: String,
     password: String,
@@ -24,6 +25,7 @@ impl AuthClient {
     /// Create a new authentication client
     pub fn new(
         server_address: String,
+        hostname: Option<String>,
         hub_name: String,
         username: String,
         password: String,
@@ -31,10 +33,13 @@ impl AuthClient {
         let addr: SocketAddr = server_address.parse()
             .map_err(|e| VpnError::Config(format!("Invalid server address: {}", e)))?;
         
+        let server_endpoint = format!("https://{}:{}", addr.ip(), addr.port());
+        
         Ok(Self {
-            watermark_client: WatermarkClient::new(addr, false)?,
+            watermark_client: WatermarkClient::new(addr, hostname, false)?,
             http_client: HttpClient::new(),
             server_address,
+            server_endpoint,
             hub_name,
             username,
             password,
@@ -123,22 +128,42 @@ impl AuthClient {
     async fn perform_hub_authentication(&self, stream: &mut TcpStream) -> Result<(), VpnError> {
         log::info!("Authenticating with hub: {}", self.hub_name);
         
-        // Create authentication packet
+        // Create authentication packet for clustered SoftEther server
         let mut pack = Pack::new();
         pack.add_str("method", "login");
         pack.add_str("username", &self.username);
         pack.add_str("password", &self.password);
         pack.add_str("hub", &self.hub_name);
         
+        // Add the required no_save_password parameter (server expects this)
+        pack.add_str("no_save_password", "1");
+        
+        // Parameters for clustered SoftEther VPN
+        pack.add_int("client_ver", 4560);  // SoftEther client version
+        pack.add_str("client_str", "SE-VPN Client");
+        pack.add_int("client_build", 9686);
+        
+        // Clustering-specific parameters
+        pack.add_str("cluster_member_cert", "");  // Empty for now
+        pack.add_int("use_encrypt", 1);  // Use encryption
+        pack.add_int("use_compress", 1);  // Use compression
+        
         // Send via HTTP POST to the same connect.cgi endpoint  
-        let url = format!("https://{}:{}/vpnsvc/connect.cgi", stream.peer_addr().unwrap().ip(), 443);
+        let url = format!("{}/vpnsvc/connect.cgi", self.server_endpoint);
         
         let data = pack.to_bytes()?;
-        let response = self.watermark_client.http_client
+        let mut auth_request = self.watermark_client.http_client
             .post(&url)
             .header("Content-Type", "application/octet-stream")
             .header("Content-Length", &data.len().to_string())
-            .header("Connection", "Keep-Alive")
+            .header("Connection", "Keep-Alive");
+            
+        // Add Host header if hostname is available
+        if let Some(hostname) = &self.watermark_client.hostname {
+            auth_request = auth_request.header("Host", hostname);
+        }
+        
+        let response = auth_request
             .body(data)
             .send()
             .await
@@ -331,7 +356,7 @@ pub async fn authenticate_connection(
         .map_err(|e| VpnError::Network(format!("Failed to connect to server: {}", e)))?;
     
     // Create auth client and authenticate
-    let mut auth_client = AuthClient::new(server_address, hub_name, username, password)?;
+    let mut auth_client = AuthClient::new(server_address, None, hub_name, username, password)?;
     let session_id = auth_client.authenticate_with_stream(&mut stream).await?;
     
     Ok((stream, session_id))

@@ -288,7 +288,7 @@ impl OptimizedVpnClient {
             .map_err(|_| VpnError::Connection("Connection limit reached".to_string()))?;
         
         // Connect using binary protocol
-        let server_addr: SocketAddr = format!("{}:{}", self.config.server.hostname, self.config.server.port)
+        let server_addr: SocketAddr = format!("{}:{}", self.config.server.address, self.config.server.port)
             .parse()
             .map_err(|e| VpnError::Config(format!("Invalid server address: {}", e)))?;
         

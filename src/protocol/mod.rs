@@ -41,7 +41,7 @@ pub struct ProtocolHandler {
 impl ProtocolHandler {
     /// Create a new protocol handler
     pub fn new(server_addr: SocketAddr, verify_certificate: bool) -> Result<Self> {
-        let watermark_client = WatermarkClient::new(server_addr, verify_certificate)?;
+        let watermark_client = WatermarkClient::new(server_addr, None, verify_certificate)?;
         
         Ok(ProtocolHandler {
             server_addr,

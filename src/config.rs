@@ -25,8 +25,11 @@ pub enum AuthMethod {
 /// Server configuration settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    /// Server hostname or IP address
-    pub hostname: String,
+    /// Server IP address (mandatory)
+    pub address: String,
+    /// Server hostname for Host header (optional)
+    #[serde(default)]
+    pub hostname: Option<String>,
     /// Server port (usually 443 for HTTPS)
     pub port: u16,
     /// Hub name to connect to
@@ -190,8 +193,8 @@ impl Config {
     /// Validate the configuration
     pub fn validate(&self) -> Result<()> {
         // Validate server configuration
-        if self.server.hostname.is_empty() {
-            return Err(VpnError::Config("Server hostname cannot be empty".into()));
+        if self.server.address.is_empty() {
+            return Err(VpnError::Config("Server address cannot be empty".into()));
         }
 
         if self.server.port == 0 {
@@ -252,7 +255,8 @@ impl Config {
     pub fn default_test() -> Self {
         Self {
             server: ServerConfig {
-                hostname: "localhost".to_string(),
+                address: "127.0.0.1".to_string(),
+                hostname: Some("localhost".to_string()),
                 port: 443,
                 hub: "DEFAULT".to_string(),
                 use_ssl: true,

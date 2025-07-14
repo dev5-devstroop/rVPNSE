@@ -26,11 +26,12 @@ pub struct WatermarkClient {
     pub(crate) http_client: Client,
     pub(crate) server_addr: SocketAddr,
     pub(crate) base_url: String,
+    pub(crate) hostname: Option<String>,
 }
 
 impl WatermarkClient {
     /// Create a new watermark client
-    pub fn new(server_addr: SocketAddr, verify_certificate: bool) -> Result<Self> {
+    pub fn new(server_addr: SocketAddr, hostname: Option<String>, verify_certificate: bool) -> Result<Self> {
         let mut client_builder = Client::builder()
             .user_agent("SoftEther VPN Client");
 
@@ -49,6 +50,7 @@ impl WatermarkClient {
             http_client,
             server_addr,
             base_url,
+            hostname,
         })
     }
 
@@ -60,12 +62,19 @@ impl WatermarkClient {
         let url = format!("{}/vpnsvc/connect.cgi", self.base_url);
         
         // First try with "VPNCONNECT" - this is simpler and more commonly used
-        let response = self.http_client
+        let mut request = self.http_client
             .post(&url)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("Content-Length", "10")
             .header("Connection", "Keep-Alive")
-            .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)")
+            .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)");
+        
+        // Add Host header if hostname is provided
+        if let Some(hostname) = &self.hostname {
+            request = request.header("Host", hostname);
+        }
+        
+        let response = request
             .body("VPNCONNECT")
             .send()
             .await
@@ -86,12 +95,19 @@ impl WatermarkClient {
         // If VPNCONNECT fails, try with the GIF watermark
         let watermark_data = SOFTETHER_WATERMARK.to_vec();
 
-        let response = self.http_client
+        let mut gif_request = self.http_client
             .post(&url)
             .header("Content-Type", "image/gif")
             .header("Content-Length", &watermark_data.len().to_string())
             .header("Connection", "Keep-Alive")
-            .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)")
+            .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)");
+            
+        // Add Host header if hostname is provided
+        if let Some(hostname) = &self.hostname {
+            gif_request = gif_request.header("Host", hostname);
+        }
+
+        let response = gif_request
             .body(watermark_data)
             .send()
             .await

@@ -151,7 +151,8 @@ impl VpnClient {
         
         // Initialize auth client
         let auth_client = AuthClient::new(
-            server_addr.to_string(),
+            format!("{}:{}", self.config.server.address, self.config.server.port),
+            self.config.server.hostname.clone(),
             self.config.server.hub.clone(),
             self.config.auth.username.clone().unwrap_or_default(),
             self.config.auth.password.clone().unwrap_or_default(),
@@ -163,23 +164,11 @@ impl VpnClient {
         Ok(())
     }
 
-    /// Resolve server address - handles both IP addresses and hostnames
+    /// Parse server address - expects IP:port format
     fn resolve_server_address(server: &str, port: u16) -> Result<SocketAddr> {
-        // First try to parse as IP address directly
-        if let Ok(addr) = format!("{server}:{port}").parse::<SocketAddr>() {
-            return Ok(addr);
-        }
-
-        // If that fails, try hostname resolution
-        let addr_string = format!("{server}:{port}");
-        let mut addrs = addr_string.to_socket_addrs().map_err(|e| {
-            VpnError::Network(format!("Failed to resolve hostname '{server}': {e}"))
-        })?;
-
-        // Return the first resolved address
-        addrs
-            .next()
-            .ok_or_else(|| VpnError::Network(format!("No addresses found for hostname '{server}'")))
+        // Parse IP address directly - no DNS resolution needed
+        format!("{server}:{port}").parse::<SocketAddr>()
+            .map_err(|e| VpnError::Config(format!("Invalid server address '{server}:{port}': {e}")))
     }
 
     /// Authenticate with `SoftEther` VPN server

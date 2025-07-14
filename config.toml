@@ -1,6 +1,7 @@
 [server]
+address = "62.24.65.211"
 hostname = "worxvpn.662.cloud"
-port = 443
+port = 992
 hub = "VPN"
 verify_certificate = false
 
