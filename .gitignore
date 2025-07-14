@@ -178,3 +178,6 @@ connection_logs/
 # WorxVPN - separate project, not part of rvpnse
 examples/WorxVPN/
 examples/WorxVPN_backup/
+
+# SoftEtherVPN - external dependency, not part of rvpnse
+SoftEtherVPN/
