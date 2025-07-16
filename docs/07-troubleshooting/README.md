@@ -5,6 +5,7 @@ Comprehensive troubleshooting guide for rVPNSE. Find solutions to common issues 
 ## 📑 Contents
 
 - [🚨 Common Issues](common-issues.md) - Most frequent problems and solutions
+- [🌐 VPN Connectivity Issues](vpn-connectivity.md) - Fixing routing and DNS problems
 - [🔍 Debugging Guide](debugging.md) - How to debug rVPNSE issues
 - [📊 Performance Issues](performance.md) - Performance troubleshooting
 - [🔒 Security Issues](security.md) - Security-related problems
@@ -18,6 +19,9 @@ Comprehensive troubleshooting guide for rVPNSE. Find solutions to common issues 
 | Problem | Quick Fix |
 |---------|-----------|
 | **Connection timeout** | Check server address and firewall settings |
+| **VPN connects but no internet access** | Run `sudo ./fix_vpn_connection.sh` to fix routing and DNS |
+| **Cannot resolve domains through VPN** | Use `sudo ./fix_vpn_connection.sh` to configure DNS properly |
+| **Multiple default routes** | Run `verify_vpn_connectivity.sh` then fix with `fix_vpn_connection.sh` |
 | **Authentication failed** | Verify username/password and server configuration |
 | **DNS resolution fails** | Try using IP address instead of hostname |
 | **Certificate errors** | Check system time and certificate validity |

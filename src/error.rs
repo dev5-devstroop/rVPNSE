@@ -21,6 +21,10 @@ pub enum VpnError {
     #[error("Connection failed: {0}")]
     Connection(String),
 
+    /// Packet framing/processing errors
+    #[error("Packet error: {0}")]
+    PacketError(String),
+
     /// Authentication errors
     #[error("Authentication failed: {0}")]
     Authentication(String),

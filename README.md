@@ -260,12 +260,30 @@ Performance metrics are automatically updated by our CI/CD pipeline. Run `cargo 
 - **[📚 Complete Documentation](docs/README.md)** - Comprehensive guides and API reference
 - **[🚀 Quick Start Guide](docs/quick-start.md)** - Get up and running in 5 minutes  
 - **[🏗️ Build Instructions](docs/build/README.md)** - Detailed build guide for all platforms
-- **[🔧 Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
+- **[🔧 Troubleshooting](docs/07-troubleshooting/common-issues.md)** - Common issues and solutions
+- **[🌐 VPN Connectivity Issues](docs/07-troubleshooting/vpn-connectivity.md)** - Fix routing and DNS problems
 - **[📋 API Reference](docs/api/c-api.md)** - Complete C API documentation
 
 ## 🤝 Contributing
 
 We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Troubleshooting VPN Connectivity
+
+We provide several utility scripts to help diagnose and fix common VPN connectivity issues:
+
+```bash
+# Verify if your VPN connection is working correctly
+sudo ./verify_vpn_connectivity.sh
+
+# Fix common routing and DNS issues
+sudo ./fix_vpn_connection.sh
+
+# Install system hooks for automatic VPN configuration
+sudo ./install_vpn_hooks.sh
+```
+
+See our [VPN connectivity troubleshooting guide](docs/07-troubleshooting/vpn-connectivity.md) for more detailed information.
 
 ### Development Setup
 

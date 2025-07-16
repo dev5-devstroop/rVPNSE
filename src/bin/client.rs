@@ -78,14 +78,40 @@ async fn main() -> Result<()> {
         process::exit(1);
     }
     info!("Authentication successful");
+    println!("🚨🚨🚨 POST-AUTH DEBUG - ABOUT TO START TUNNEL ESTABLISHMENT 🚨🚨🚨");
+    eprintln!("🚨🚨🚨 POST-AUTH DEBUG - ABOUT TO START TUNNEL ESTABLISHMENT 🚨🚨🚨");
+
+    // Start keepalive loop in background before tunnel establishment
+    info!("Starting VPN keepalive in background...");
+    println!("🚨 STARTING KEEPALIVE BACKGROUND TASK 🚨");
+    eprintln!("🚨 STARTING KEEPALIVE BACKGROUND TASK 🚨");
+    
+    let client_for_keepalive = std::sync::Arc::new(tokio::sync::Mutex::new(client));
+    let keepalive_client = client_for_keepalive.clone();
+    tokio::spawn(async move {
+        let mut client = keepalive_client.lock().await;
+        if let Err(e) = client.start_binary_keepalive_loop().await {
+            eprintln!("Keepalive loop failed: {}", e);
+        }
+    });
+    
+    let mut client = client_for_keepalive.lock().await;
 
     // Establish tunnel
     info!("Establishing VPN tunnel...");
+    println!("🚨 ESTABLISHING VPN TUNNEL LOG MESSAGE REACHED 🚨");
+    eprintln!("🚨 ESTABLISHING VPN TUNNEL LOG MESSAGE REACHED 🚨");
+    println!("🚨 ABOUT TO CALL client.establish_tunnel()!");
+    eprintln!("🚨 ABOUT TO CALL client.establish_tunnel()!");
     if let Err(e) = client.establish_tunnel() {
+        println!("🚨 establish_tunnel() returned ERROR: {}", e);
+        eprintln!("🚨 establish_tunnel() returned ERROR: {}", e);
         error!("Failed to establish tunnel: {}", e);
         let _ = client.disconnect();
         process::exit(1);
     }
+    println!("🚨 establish_tunnel() returned OK!");
+    eprintln!("🚨 establish_tunnel() returned OK!");
     info!("VPN tunnel established successfully");
 
     // Display connection information
@@ -236,12 +262,28 @@ async fn display_connection_info(client: &VpnClient, _config: &Config) {
         println!("Authenticated: {}", session_info.is_authenticated);
     }
     
-    // Display basic tunnel information
+    // Display tunnel information with actual detected IPs
     println!("\n=== Tunnel Information ===");
-    println!("Interface: rvpnse0");
-    println!("Local IP: 10.0.0.2");
-    println!("Remote IP: 10.0.0.1");
-    println!("Netmask: 255.255.255.0");
+    println!("Interface: vpnse0");
+    
+    // Get actual IPs from auth client if available
+    if let Some(auth_client) = client.auth_client() {
+        if let Some(ip_config) = auth_client.get_ip_config() {
+            println!("Local IP: {}", ip_config.local_ip);
+            println!("Remote IP: {}", ip_config.gateway_ip);
+            println!("Netmask: {}", ip_config.netmask);
+            println!("Source: {} (detected from server)", ip_config.source);
+        } else {
+            println!("Local IP: 10.0.0.2 (fallback - no server config detected)");
+            println!("Remote IP: 10.0.0.1 (fallback - no server config detected)");
+            println!("Netmask: 255.255.255.0 (fallback)");
+        }
+    } else {
+        println!("Local IP: 10.0.0.2 (fallback - no auth client)");
+        println!("Remote IP: 10.0.0.1 (fallback - no auth client)");
+        println!("Netmask: 255.255.255.0 (fallback)");
+    }
+    
     println!("MTU: 1500");
     println!("DNS Servers: 8.8.8.8, 8.8.4.4");
     

@@ -48,8 +48,11 @@ ipnet = "2.9"
 tun = "0.6"
 # IP address detection
 public-ip = "0.2"
-# Random number generation for load balancing
+# Random number generation for session IDs
 rand = "0.8"
+
+# Regular expressions for string parsing
+regex = "1.10"
 
 # UUID generation for sessions
 uuid = { version = "1.0", features = ["v4"] }

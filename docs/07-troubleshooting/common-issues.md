@@ -2,6 +2,8 @@
 
 This guide covers common issues you might encounter when building, integrating, or using rVPNSE.
 
+> **For VPN connectivity issues (routing, DNS, etc.), see our [VPN Connectivity Troubleshooting Guide](vpn-connectivity.md)**
+
 ## 🚨 Quick Diagnostics
 
 Run these commands to quickly identify common issues:

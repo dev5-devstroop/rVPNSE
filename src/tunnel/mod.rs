@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::io::{Read, Write};
 use tokio::sync::mpsc;
 use tun::Device;
+use regex::Regex;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -26,6 +27,7 @@ mod windows;
 pub mod windows_tun;
 
 pub mod real_tun;
+pub mod packet_framing;
 
 /// TUN interface configuration
 #[derive(Debug, Clone)]
@@ -97,21 +99,31 @@ pub struct TunnelManager {
     // Packet channels for VPN traffic routing
     packet_tx: Option<mpsc::UnboundedSender<Vec<u8>>>,
     packet_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    // Packet framing for proper VPN encapsulation
+    packet_framer: Option<packet_framing::SharedPacketFramer>,
 }
 
 impl TunnelManager {
     /// Create a new tunnel manager
     pub fn new(config: TunnelConfig) -> Self {
         let (packet_tx, packet_rx) = mpsc::unbounded_channel();
+        
+        // Generate a session ID for packet framing
+        let session_id = rand::random::<u32>();
+        
         Self {
             interface_name: config.interface_name.clone(),
-            config,
+            config: config.clone(),
             original_route: None,
             original_dns: Vec::new(),
             is_established: false,
             tun_device: None,
             packet_tx: Some(packet_tx),
             packet_rx: Some(packet_rx),
+            packet_framer: Some(packet_framing::SharedPacketFramer::new(
+                session_id, 
+                config.remote_ip.into()
+            )),
         }
     }
 
@@ -142,6 +154,17 @@ impl TunnelManager {
         println!("   📝 Interface: {}", self.interface_name);
         println!("   📍 Local IP: {}", self.config.local_ip);
         println!("   📍 Remote IP: {}", self.config.remote_ip);
+        
+        // Check if this is a DHCP-assigned IP range and provide extra info
+        if self.is_dhcp_assigned_ip() {
+            let octets = self.config.local_ip.octets();
+            println!("   📌 DHCP-assigned IP detected: {}.{}.*.* range", octets[0], octets[1]);
+            
+            // Special handling for 10.21.*.* networks
+            if octets[0] == 10 && octets[1] == 21 {
+                println!("   ✅ Found expected 10.21.*.* network from DHCP");
+            }
+        }
 
         // Start packet routing loop
         self.start_packet_routing_loop()?;
@@ -227,143 +250,212 @@ impl TunnelManager {
 
     /// Set VPN tunnel as default gateway
     fn set_vpn_default_gateway(&self) -> Result<()> {
-        println!("   🛣️ Setting VPN tunnel as default gateway...");
+        println!("Setting up routing for VPN tunnel...");
         
         #[cfg(target_os = "linux")]
         {
-            // First, check current default route
-            let current_route = Command::new("ip")
-                .args(["route", "show", "default"])
+            // Step 1: Find active network interface
+            let if_output = Command::new("ip")
+                .args(["route", "get", "8.8.8.8"])
                 .output();
-
-            if let Ok(output) = current_route {
-                let route_info = String::from_utf8_lossy(&output.stdout);
-                println!("   📋 Current default route: {}", route_info.trim());
-            }
-
-            // Get the current default gateway to preserve server connectivity
-            let gateway_output = Command::new("ip")
-                .args(["route", "show", "default"])
-                .output();
+                
+            let active_interface = if let Ok(output) = if_output {
+                let out_str = String::from_utf8_lossy(&output.stdout);
+                // Extract "dev X" from output
+                let pattern = "dev ";
+                if let Some(pos) = out_str.find(pattern) {
+                    let after_dev = &out_str[pos + pattern.len()..];
+                    after_dev.split_whitespace().next().unwrap_or("eth0").to_string()
+                } else {
+                    "eth0".to_string()
+                }
+            } else {
+                "eth0".to_string()
+            };
             
-            let original_gateway = if let Ok(output) = gateway_output {
-                let route_str = String::from_utf8_lossy(&output.stdout);
-                // Extract gateway IP from "default via X.X.X.X dev interface"
-                route_str.split_whitespace()
-                    .skip_while(|&word| word != "via")
-                    .nth(1)
-                    .unwrap_or("192.168.1.1")
-                    .to_string()
+            // Step 2: Get default gateway IP
+            let gw_output = Command::new("ip")
+                .args(["route", "show", "default"])
+                .output();
+            let default_gw = if let Ok(output) = gw_output {
+                let route_info = String::from_utf8_lossy(&output.stdout);
+                
+                // Extract the gateway IP address using regex
+                let re = Regex::new(r"default\s+via\s+(\d+\.\d+\.\d+\.\d+)").unwrap();
+                if let Some(caps) = re.captures(&route_info) {
+                    caps.get(1).unwrap().as_str().to_string()
+                } else {
+                    // Fallback to simple string parsing if regex fails
+                    route_info
+                        .split_whitespace()
+                        .skip_while(|&word| word != "via")
+                        .nth(1)
+                        .unwrap_or("192.168.1.1")
+                        .to_string()
+                }
             } else {
                 "192.168.1.1".to_string()
             };
             
-            println!("   📍 Preserving original gateway: {}", original_gateway);
-
-            // Store VPN server route to preserve connectivity to VPN server
-            // This prevents routing loops where VPN traffic tries to go through VPN
+            // Use active_interface from earlier extraction
+            println!("   📍 Preserving original gateway: {}", default_gw);
+            println!("   📍 Original interface: {}", active_interface);
+            
+            // Step 3: Create a route to the VPN server through the original gateway
             if let Some(vpn_server) = self.get_vpn_server_ip() {
-                let server_route_result = Command::new("sudo")
-                    .args([
-                        "ip", "route", "add", 
-                        &format!("{}/32", vpn_server),
-                        "via", &original_gateway
-                    ])
+                // First, clean up any existing routes to avoid conflicts
+                let _cleanup = Command::new("sudo")
+                    .args(["ip", "route", "del", &format!("{}/32", vpn_server)])
                     .output();
                 
-                if let Ok(result) = server_route_result {
-                    if result.status.success() {
+                // Add route to VPN server via original gateway
+                let add_server_route = Command::new("sudo")
+                    .args([
+                        "ip", "route", "add",
+                        &format!("{}/32", vpn_server),
+                        "via", &default_gw,
+                        "dev", &active_interface
+                    ])
+                    .output();
+                    
+                if let Ok(out) = add_server_route {
+                    if out.status.success() {
                         println!("   ✅ Added VPN server route via original gateway");
                     } else {
-                        println!("   ℹ️ VPN server route may already exist");
+                        let err = String::from_utf8_lossy(&out.stderr);
+                        println!("   ⚠️ Server route add failed: {}", err);
                     }
                 }
             }
 
-            // Delete existing default route (may fail if none exists)
-            let delete_output = Command::new("sudo")
+            // Step 4: Remove existing default routes (clean slate approach)
+            println!("   🔄 Cleaning up existing routes...");
+            
+            // Use a single command to delete the default route (more efficient)
+            let _del_default = Command::new("sudo")
                 .args(["ip", "route", "del", "default"])
                 .output();
 
-            if let Ok(result) = delete_output {
-                if result.status.success() {
-                    println!("   ✅ Removed existing default route");
-                } else {
-                    println!("   ℹ️ No existing default route to remove");
-                }
-            }
-
-            // Method 1: Try to add default route through VPN tunnel remote IP
-            let add_output = Command::new("sudo")
+            // Step 5: Add new default route through VPN tunnel
+            println!("   🔄 Setting up VPN routing...");
+            
+            // Add default route via VPN's remote IP - follow SoftEther's approach
+            let add_default = Command::new("sudo")
                 .args([
                     "ip", "route", "add", "default",
                     "via", &self.config.remote_ip.to_string(),
                     "dev", &self.interface_name
                 ])
                 .output();
-
-            let route_success = if let Ok(result) = add_output {
-                if result.status.success() {
-                    println!("   ✅ Set VPN tunnel as default gateway via {}", self.config.remote_ip);
-                    true
+                
+            if let Ok(out) = add_default {
+                if out.status.success() {
+                    println!("   ✅ Set VPN tunnel as default gateway");
                 } else {
-                    let stderr = String::from_utf8_lossy(&result.stderr);
-                    println!("   ⚠️ Default gateway via remote IP failed: {}", stderr);
-                    false
-                }
-            } else {
-                false
-            };
-
-            // Method 2: If method 1 failed, try direct device routing
-            if !route_success {
-                println!("   🔄 Trying alternative routing method...");
-                
-                let alt_output = Command::new("sudo")
-                    .args([
-                        "ip", "route", "add", "default",
-                        "dev", &self.interface_name,
-                        "metric", "1"
-                    ])
-                    .output();
-                
-                if let Ok(alt_result) = alt_output {
-                    if alt_result.status.success() {
-                        println!("   ✅ Set VPN tunnel as default gateway (direct device method)");
-                    } else {
-                        println!("   ⚠️ Direct device routing also failed");
-                    }
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    println!("   ⚠️ Failed to set default route: {}", err);
                 }
             }
-
-            // Method 3: Add split tunneling routes to force all traffic through VPN
-            // This ensures all internet traffic goes through VPN even if default route fails
-            let route_all1 = Command::new("sudo")
+            
+            // Step 6: Verify the new routing table
+            let check = Command::new("ip")
+                .args(["route", "show"])
+                .output();
+                
+            if let Ok(out) = check {
+                let routes = String::from_utf8_lossy(&out.stdout);
+                println!("   📋 Current routing table:");
+                for line in routes.lines().take(5) {
+                    println!("      {}", line);
+                }
+                if routes.lines().count() > 5 {
+                    println!("      ... ({} more routes)", routes.lines().count() - 5);
+                }
+            }
+            
+            // Step 7: Simple split tunneling for comprehensive coverage (following SoftEther approach)
+            // This ensures all traffic goes through the VPN except for direct routes
+            println!("   🔄 Adding split tunneling routes...");
+            
+            // Add routes for both halves of the IPv4 address space
+            // This is more reliable than default routes in many cases
+            let add_lower = Command::new("sudo")
                 .args([
                     "ip", "route", "add", "0.0.0.0/1",
-                    "dev", &self.interface_name,
-                    "metric", "1"
+                    "via", &self.config.remote_ip.to_string(),
+                    "dev", &self.interface_name
                 ])
                 .output();
-            
-            let route_all2 = Command::new("sudo")
+                
+            let add_upper = Command::new("sudo")
                 .args([
                     "ip", "route", "add", "128.0.0.0/1", 
-                    "dev", &self.interface_name,
-                    "metric", "1"
+                    "via", &self.config.remote_ip.to_string(),
+                    "dev", &self.interface_name
                 ])
                 .output();
-
-            if route_all1.is_ok() && route_all2.is_ok() {
-                println!("   ✅ Added split tunneling routes for comprehensive VPN routing");
+                
+            if add_lower.is_ok() && add_upper.is_ok() {
+                println!("   ✅ Added split tunneling routes");
             }
 
-            // Method 4: Configure iptables to DNAT all traffic through VPN interface
-            println!("   🔧 Setting up iptables rules for VPN traffic...");
+            // Step 8: Disable reverse path filtering (critical for VPN traffic)
+            println!("   🔧 Optimizing kernel parameters for VPN...");
+            
+            // Disable reverse path filtering
+            let _rp_filter = Command::new("sudo")
+                .args(["sysctl", "-w", "net.ipv4.conf.all.rp_filter=0"])
+                .output();
+                
+            let _rp_filter_if = Command::new("sudo")
+                .args(["sysctl", "-w", &format!("net.ipv4.conf.{}.rp_filter=0", self.interface_name)])
+                .output();
+                
+            // Enable IP forwarding for VPN traffic
+            let _ip_forward = Command::new("sudo")
+                .args(["sysctl", "-w", "net.ipv4.ip_forward=1"])
+                .output();
+                
+            println!("   ✅ Optimized kernel parameters for VPN traffic");
+            
+            // Step 9: Setup minimal iptables rules for VPN 
+            println!("   🔧 Setting up iptables for VPN traffic...");
+            
+            // Allow traffic from the VPN interface
+            let vpn_ip = self.config.local_ip.to_string();
+            println!("   📝 Using VPN IP: {} for routing configuration", vpn_ip);
+            
+            // Support for different VPN IP ranges (10.21.*.*, 124.166.*.*, etc.)
+            // Extract the network part of the IP for proper routing
+            let vpn_subnet = {
+                // Use a separate scope to contain the borrow
+                let parts: Vec<&str> = vpn_ip.split('.').collect();
+                if parts.len() >= 3 {
+                    // All IP ranges get /24 subnet by default for simplicity
+                    format!("{}.{}.{}.0/24", parts[0], parts[1], parts[2])
+                } else {
+                    format!("{}/24", vpn_ip)
+                }
+            };
+            
+            println!("   📝 Using VPN subnet: {} for routing configuration", vpn_subnet);
             
             // Enable IP forwarding
-            let _forward_result = Command::new("sudo")
+            let forward_result = Command::new("sudo")
                 .args(["sysctl", "-w", "net.ipv4.ip_forward=1"])
+                .output();
+                
+            if let Ok(result) = forward_result {
+                if result.status.success() {
+                    println!("   ✅ Enabled IP forwarding");
+                }
+            }
+            
+            // IMPROVED: Flush existing NAT rules to avoid conflicts
+            let _flush_nat = Command::new("sudo")
+                .args([
+                    "iptables", "-t", "nat", "-F"
+                ])
                 .output();
             
             // Add NAT rule to route traffic through VPN
@@ -447,32 +539,223 @@ impl TunnelManager {
     fn configure_vpn_dns(&self) -> Result<()> {
         println!("   🔧 Configuring VPN DNS...");
 
-        // Common public DNS servers as fallback
-        let vpn_dns_servers = ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"];
+        // First try to extract DNS from DHCP-assigned values (future implementation)
+        // For now, use reliable public DNS servers as fallback - reordered for better reliability
+        let vpn_dns_servers = ["1.1.1.1", "8.8.8.8", "8.8.4.4", "1.0.0.1"];
+        
+        // Log the VPN IP information for debugging
+        println!("   📝 VPN IP configuration: Local={}, Gateway={}", 
+                self.config.local_ip, self.config.remote_ip);
+        
+        // Try to determine if the gateway might be a DNS server (common in VPN setups)
+        let gateway_ip = self.config.remote_ip.to_string();
+        println!("   📝 Checking if gateway IP {} can be used as DNS server", gateway_ip);
 
         #[cfg(target_os = "linux")]
         {
-            // Backup original resolv.conf
-            let _backup_result = Command::new("sudo")
-                .args(["cp", "/etc/resolv.conf", "/etc/resolv.conf.vpn_backup"])
-                .output();
-
-            // Create new resolv.conf with VPN DNS
-            let mut dns_config = String::new();
-            for dns in &vpn_dns_servers {
-                dns_config.push_str(&format!("nameserver {}\n", dns));
-            }
-
-            // Write new DNS configuration
-            if let Ok(mut file) = std::fs::File::create("/tmp/resolv.conf.vpn") {
-                use std::io::Write;
-                let _ = file.write_all(dns_config.as_bytes());
+            // Detect if systemd-resolved is in use
+            let using_systemd_resolved = Command::new("systemctl")
+                .args(["is-active", "systemd-resolved"])
+                .output()
+                .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "active")
+                .unwrap_or(false);
+            
+            println!("   📝 Detected systemd-resolved: {}", using_systemd_resolved);
+            
+            if using_systemd_resolved {
+                // Configure systemd-resolved for the VPN interface
+                println!("   🔧 Configuring systemd-resolved for VPN DNS...");
                 
-                let _move_result = Command::new("sudo")
-                    .args(["mv", "/tmp/resolv.conf.vpn", "/etc/resolv.conf"])
+                // Create a temporary config file
+                let mut resolved_conf = String::new();
+                resolved_conf.push_str("[Resolve]\n");
+                
+                // Check if we should include gateway as potential DNS server
+                let mut dns_servers = vpn_dns_servers.to_vec();
+                let gateway_ip = self.config.remote_ip.to_string();
+                dns_servers.insert(0, &gateway_ip); // Add gateway IP as first DNS option
+                
+                resolved_conf.push_str(&format!("DNS={}\n", dns_servers.join(" ")));
+                resolved_conf.push_str("DNSStubListener=yes\n");
+                resolved_conf.push_str("DNSOverTLS=opportunistic\n"); // Try DNS-over-TLS if available
+                resolved_conf.push_str("Cache=yes\n"); // Enable DNS caching
+                resolved_conf.push_str("DNSSEC=allow-downgrade\n"); // Allow DNSSEC with fallback
+                
+                if let Ok(mut file) = std::fs::File::create("/tmp/vpn-dns.conf") {
+                    use std::io::Write;
+                    let _ = file.write_all(resolved_conf.as_bytes());
+                    
+                    // Move the config file
+                    let _ = Command::new("sudo")
+                        .args(["mkdir", "-p", "/etc/systemd/resolved.conf.d/"])
+                        .output();
+                        
+                    let _move_result = Command::new("sudo")
+                        .args(["mv", "/tmp/vpn-dns.conf", "/etc/systemd/resolved.conf.d/vpn-dns.conf"])
+                        .output();
+                    
+                    // Force resolved to use our DNS servers for the VPN interface
+                    let _set_link_dns = Command::new("sudo")
+                        .args(["resolvectl", "dns", &self.interface_name, &dns_servers.join(" ")])
+                        .output();
+                    
+                    // Restart systemd-resolved
+                    let _restart = Command::new("sudo")
+                        .args(["systemctl", "restart", "systemd-resolved"])
+                        .output();
+                    
+                    // Flush DNS caches
+                    let _flush = Command::new("sudo")
+                        .args(["resolvectl", "flush-caches"])
+                        .output();
+                    
+                    println!("   ✅ systemd-resolved configured for VPN DNS");
+                    println!("   📝 DNS servers: {} (gateway IP first for best VPN-provided DNS support)", dns_servers.join(", "));
+                }
+            } else {
+                // Backup original resolv.conf
+                let _backup_result = Command::new("sudo")
+                    .args(["cp", "/etc/resolv.conf", "/etc/resolv.conf.vpn_backup"])
                     .output();
+
+                // Create new resolv.conf with VPN DNS and shorter timeout for faster fallback
+                let mut dns_config = String::new();
+                dns_config.push_str("# DNS Configuration for rVPNSE VPN\n");
+                dns_config.push_str("options timeout:1 attempts:3 rotate\n"); // Short timeout, multiple attempts, rotate servers
+                dns_config.push_str("options edns0\n"); // Enable EDNS which often helps with VPN DNS
                 
-                println!("   ✅ DNS configured for VPN");
+                // Check for any DHCP-provided DNS servers from the VPN connection
+                // This works with various ranges including 10.21.*.*, 10.216.48.*, 10.244.*.* networks
+                let vpn_octets = self.config.local_ip.octets();
+                let gateway_ip = self.config.remote_ip.to_string();
+                
+                // Log the subnet info for debugging
+                println!("   📝 VPN subnet: {}.{}.{}.0/24 (checking for DNS servers in this range)", 
+                         vpn_octets[0], vpn_octets[1], vpn_octets[2]);
+                
+                // Add the VPN gateway as the first nameserver (common in VPN setups)
+                dns_config.push_str(&format!("nameserver {}\n", gateway_ip));
+                println!("   📝 Adding VPN gateway as primary DNS: {}", gateway_ip);
+
+                // Add the primary public DNS servers next
+                for dns in &vpn_dns_servers {
+                    dns_config.push_str(&format!("nameserver {}\n", dns));
+                }
+
+                // Add search domain to help with name resolution
+                // Common VPN domains that might help with internal DNS resolution
+                dns_config.push_str("search local vpn internal\n");
+
+                // Write new DNS configuration
+                if let Ok(mut file) = std::fs::File::create("/tmp/resolv.conf.vpn") {
+                    use std::io::Write;
+                    let _ = file.write_all(dns_config.as_bytes());
+                    
+                    let _move_result = Command::new("sudo")
+                        .args(["mv", "/tmp/resolv.conf.vpn", "/etc/resolv.conf"])
+                        .output();
+                    
+                    // Set proper permissions
+                    let _chmod = Command::new("sudo")
+                        .args(["chmod", "644", "/etc/resolv.conf"])
+                        .output();
+                    
+                    // Ensure nsswitch.conf has correct entries for DNS
+                    let _nsswitch_check = Command::new("sudo")
+                        .args(["grep", "-q", "hosts:.*dns", "/etc/nsswitch.conf"])
+                        .output();
+                    
+                    if let Ok(result) = _nsswitch_check {
+                        if !result.status.success() {
+                            println!("   📝 Adding 'dns' to nsswitch.conf hosts entry");
+                            // Add dns to the hosts line in nsswitch.conf
+                            let _sed_cmd = Command::new("sudo")
+                                .args(["sed", "-i", "/hosts:/s/$/ dns/", "/etc/nsswitch.conf"])
+                                .output();
+                        }
+                    }
+                    
+                    println!("   ✅ DNS configured for VPN via direct resolv.conf update");
+                }
+            }
+            
+            // Test DNS resolution with multiple methods for better diagnostics
+            println!("   🔍 Testing DNS resolution...");
+            
+            // Test with host command (simple DNS lookup)
+            let dns_test_host = Command::new("host")
+                .args(["google.com"])
+                .output();
+                
+            let host_success = if let Ok(output) = dns_test_host {
+                if output.status.success() {
+                    println!("   ✅ DNS test with 'host': google.com resolves correctly");
+                    true
+                } else {
+                    println!("   ⚠️ DNS test with 'host': google.com cannot be resolved");
+                    false
+                }
+            } else {
+                println!("   ⚠️ Failed to run 'host' command");
+                false
+            };
+            
+            // Try ping as another test method
+            let dns_test_ping = Command::new("ping")
+                .args(["-c", "1", "-W", "3", "google.com"])
+                .output();
+                
+            let ping_success = if let Ok(output) = dns_test_ping {
+                if output.status.success() {
+                    println!("   ✅ DNS test with 'ping': google.com resolves correctly");
+                    true
+                } else {
+                    println!("   ⚠️ DNS test with 'ping': google.com cannot be resolved");
+                    false
+                }
+            } else {
+                println!("   ⚠️ Failed to run 'ping' command");
+                false
+            };
+            
+            // Try with dig if available (more detailed DNS info)
+            let dns_test_dig = Command::new("dig")
+                .args(["+short", "google.com"])
+                .output();
+                
+            let dig_success = if let Ok(output) = dns_test_dig {
+                if output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty() {
+                    println!("   ✅ DNS test with 'dig': google.com resolves correctly");
+                    true
+                } else {
+                    println!("   ⚠️ DNS test with 'dig': google.com cannot be resolved");
+                    false
+                }
+            } else {
+                // Dig might not be installed, that's ok
+                println!("   ℹ️ 'dig' command not available");
+                false
+            };
+            
+            // Check nsswitch.conf to ensure DNS is properly configured in the system
+            let nsswitch_check = Command::new("grep")
+                .args(["hosts:", "/etc/nsswitch.conf"])
+                .output();
+                
+            if let Ok(output) = nsswitch_check {
+                let nsswitch_content = String::from_utf8_lossy(&output.stdout);
+                if !nsswitch_content.contains("dns") {
+                    println!("   ⚠️ Warning: 'dns' not found in /etc/nsswitch.conf hosts line");
+                    println!("      Add 'dns' to the hosts line in /etc/nsswitch.conf for proper DNS resolution");
+                }
+            }
+            
+            // Provide overall DNS status
+            if host_success || ping_success || dig_success {
+                println!("   ✅ DNS resolution working through at least one method");
+            } else {
+                println!("   ⚠️ DNS resolution failed with all methods");
+                println!("      Try running 'sudo ./fix_vpn_connection.sh' to repair DNS configuration");
             }
         }
 
@@ -939,6 +1222,132 @@ impl TunnelManager {
             None
         }
     }
+    
+    /// Get tunnel configuration
+    pub fn get_config(&self) -> Option<TunnelConfig> {
+        if self.is_established {
+            Some(self.config.clone())
+        } else {
+            None
+        }
+    }
+    
+    /// Check if the VPN IP is from a DHCP-assigned range
+    /// Detects networks like 10.21.*.*, 10.216.48.*, 10.244.*.* and other common ranges
+    pub fn is_dhcp_assigned_ip(&self) -> bool {
+        let octets = self.config.local_ip.octets();
+        
+        // Check for 10.*.*.* networks (includes 10.21.*.*, 10.216.48.*, 10.244.*.*)
+        if octets[0] == 10 {
+            // Log specific detected ranges for better debugging
+            if octets[1] == 21 {
+                println!("   📝 Detected 10.21.*.* VPN network from DHCP assignment");
+                return true;
+            } else if octets[1] == 216 && octets[2] == 48 {
+                println!("   📝 Detected 10.216.48.* VPN network from DHCP assignment");
+                return true;
+            } else if octets[1] == 244 {
+                println!("   📝 Detected 10.244.*.* VPN network from DHCP assignment");
+                return true;
+            }
+            
+            // All other 10.*.*.* networks are also likely DHCP assigned
+            return true;
+        }
+        
+        // Check for other common DHCP-assigned ranges
+        if (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+           (octets[0] == 192 && octets[1] == 168) ||
+           (octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127) ||
+           (octets[0] == 124 && octets[1] == 166) { // From the logs
+            return true;
+        }
+        
+        false
+    }
+    
+    /// Get VPN server IP for routing preservation
+    /// 
+    /// This method returns the VPN server IP address to prevent routing loops
+    /// where VPN traffic tries to route through the VPN itself
+    pub fn get_vpn_server_ip(&self) -> Option<String> {
+        // First check if we have a known VPN server IP from environment variable
+        if let Ok(server_ip) = std::env::var("VPN_SERVER_IP") {
+            println!("   📌 Using VPN server IP from environment variable: {}", server_ip);
+            return Some(server_ip);
+        }
+        
+        // Check for the server IP from the connection we used to establish the tunnel
+        #[cfg(target_os = "linux")]
+        {
+            // First try with ss command which is more reliable than netstat
+            let output = Command::new("ss")
+                .args(["-tn", "state", "established"])
+                .output();
+                
+            if let Ok(result) = output {
+                let connections = String::from_utf8_lossy(&result.stdout);
+                
+                // Look for established connections to port 443 or 992 (common SSL-VPN ports)
+                for line in connections.lines() {
+                    if line.contains("ESTAB") && (line.contains(":443") || line.contains(":992")) {
+                        if let Some(peer_addr_start) = line.find("peer=") {
+                            let peer_addr_part = &line[peer_addr_start + 5..];
+                            if let Some(addr_end) = peer_addr_part.find(' ') {
+                                let addr = &peer_addr_part[0..addr_end];
+                                if let Some(ip) = addr.split(':').next() {
+                                    println!("   📌 Detected VPN server IP from active connection: {}", ip);
+                                    return Some(ip.to_string());
+                                }
+                            }
+                        }
+                        
+                        // Alternative parsing for ss output format
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        for part in parts.iter() {
+                            if part.contains(":443") || part.contains(":992") {
+                                if let Some(ip) = part.split(':').next() {
+                                    // Verify this looks like an IP address
+                                    if ip.contains('.') && !ip.starts_with("127.") {
+                                        println!("   📌 Detected VPN server IP from active connection: {}", ip);
+                                        return Some(ip.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Fall back to netstat if ss didn't work
+            let output = Command::new("netstat")
+                .args(["-tn"])
+                .output();
+                
+            if let Ok(result) = output {
+                let connections = String::from_utf8_lossy(&result.stdout);
+                
+                // Look for established connections to port 443 or 992 (common SSL-VPN ports)
+                for line in connections.lines() {
+                    if line.contains("ESTABLISHED") && (line.contains(":443") || line.contains(":992")) {
+                        // Extract server IP from the line (format: IP:port)
+                        // Convert split_whitespace iterator to collect::<Vec<_>>() so we can use get()
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if let Some(addr) = parts.get(4) {
+                            if let Some(ip) = addr.split(':').next() {
+                                println!("   📌 Detected VPN server IP from active connection: {}", ip);
+                                return Some(ip.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Finally, fall back to the default server IP if all else fails
+        println!("   📌 Using default VPN server IP: 62.24.65.211");
+        Some("62.24.65.211".to_string())
+    }
 
     /// Get the current public IP
     pub async fn get_current_public_ip(&self) -> Result<String> {
@@ -986,6 +1395,36 @@ impl TunnelManager {
     fn is_valid_ip(&self, ip: &str) -> bool {
         use std::net::IpAddr;
         ip.parse::<IpAddr>().is_ok()
+    }
+    
+    /// Check if the IP is a valid VPN-assigned IP
+    /// Works with any IP range including 10.21.*.* and other DHCP-assigned ranges
+    fn is_valid_vpn_ip(&self, ip: std::net::Ipv4Addr) -> bool {
+        // First check if it's the same as our currently configured IP
+        if ip == self.config.local_ip {
+            return true;
+        }
+        
+        // Get the first octet to determine IP class
+        let first_octet = ip.octets()[0];
+        
+        // Handle special cases:
+        // 1. Private IP ranges (commonly used in VPNs)
+        if (first_octet == 10) || // 10.0.0.0/8
+           (first_octet == 172 && ip.octets()[1] >= 16 && ip.octets()[1] <= 31) || // 172.16.0.0/12
+           (first_octet == 192 && ip.octets()[1] == 168) { // 192.168.0.0/16
+            return true;
+        }
+        
+        // 2. Common VPN ranges 
+        if first_octet >= 100 && first_octet <= 127 {
+            // Many VPN providers use IPs in this range
+            return true;
+        }
+        
+        // Accept any non-local, non-multicast IP as potentially valid
+        // This ensures we don't reject unusual DHCP-assigned ranges
+        !(ip.is_loopback() || ip.is_multicast() || ip.is_broadcast())
     }
 
     /// Store the original default route
@@ -1038,21 +1477,7 @@ impl TunnelManager {
         Ok(())
     }
 
-    /// Get VPN server IP for routing preservation
-    fn get_vpn_server_ip(&self) -> Option<String> {
-        // TODO: In a real implementation, this would come from the VPN client config
-        // For now, we'll try to extract it from the system or use a known server IP
-        // This prevents routing loops where VPN traffic tries to route through the VPN itself
-        
-        // Check if we have a known VPN server IP from environment or config
-        if let Ok(server_ip) = std::env::var("VPN_SERVER_IP") {
-            return Some(server_ip);
-        }
-        
-        // Default to a common VPN server IP range
-        // In practice, this should be passed from the VPN client
-        Some("62.24.65.211".to_string()) // Default VPN server from earlier tests
-    }
+    // Using the public get_vpn_server_ip method defined above
 }
 
 impl Drop for TunnelManager {
